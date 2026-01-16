@@ -1,0 +1,115 @@
+<!--
+  Test Fixture: No Plugins
+  
+  This file tests behavior when NO external imports are used.
+  The LSP should work with just vanilla Zenith features.
+  
+  Validation rules:
+  - Removing router should not crash the IDE
+  - Missing plugin imports should show soft warnings
+  - Invalid syntax should be surfaced immediately
+  - IDE should never suggest unavailable APIs
+-->
+<script>
+  // No imports - just vanilla state and lifecycle
+  state items = ['Apple', 'Banana', 'Cherry']
+  state selectedIndex = 0
+  state filter = ''
+  
+  function selectItem(index) {
+    selectedIndex = index
+  }
+  
+  function addItem() {
+    items = [...items, 'New Item']
+  }
+  
+  function removeItem(index) {
+    items = items.filter((_, i) => i !== index)
+  }
+  
+  // Computed-like pattern
+  function getFilteredItems() {
+    if (!filter) return items
+    return items.filter(item => 
+      item.toLowerCase().includes(filter.toLowerCase())
+    )
+  }
+</script>
+
+<div class="app">
+  <header>
+    <h1>Simple List App</h1>
+    <p>Selected: {items[selectedIndex] || 'None'}</p>
+  </header>
+  
+  <div class="controls">
+    <input 
+      type="text" 
+      placeholder="Filter items..." 
+      :value="filter"
+      oninput={(e) => filter = e.target.value}
+    />
+    <button onclick={addItem}>Add Item</button>
+  </div>
+  
+  <ul class="item-list">
+    <li 
+      zen:for="item, index in getFilteredItems()"
+      :class="index === selectedIndex ? 'selected' : ''"
+    >
+      <span onclick={() => selectItem(index)}>{item}</span>
+      <button onclick={() => removeItem(index)}>Remove</button>
+    </li>
+  </ul>
+  
+  <p zen:if="getFilteredItems().length === 0">
+    No items match the filter.
+  </p>
+  
+  <footer>
+    <p>Total items: {items.length}</p>
+    <p zen:show="filter">Filtered: {getFilteredItems().length}</p>
+  </footer>
+</div>
+
+<style>
+  .app {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 1rem;
+  }
+  header {
+    margin-bottom: 1rem;
+  }
+  .controls {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+  .controls input {
+    flex: 1;
+    padding: 0.5rem;
+  }
+  .item-list {
+    list-style: none;
+    padding: 0;
+  }
+  .item-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+  }
+  .item-list li.selected {
+    background: #e0f0ff;
+  }
+  .item-list li:hover {
+    background: #f5f5f5;
+  }
+  footer {
+    margin-top: 1rem;
+    color: #666;
+  }
+</style>

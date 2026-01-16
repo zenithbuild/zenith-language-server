@@ -8899,7 +8899,7 @@ var require_node3 = __commonJS({
 });
 
 // src/server.ts
-var import_node = __toESM(require_node3());
+var import_node2 = __toESM(require_node3());
 
 // node_modules/vscode-languageserver-textdocument/lib/esm/main.js
 var FullTextDocument = class _FullTextDocument {
@@ -9232,24 +9232,612 @@ function resolveComponent(graph, name) {
   return void 0;
 }
 
+// src/metadata/directive-metadata.ts
+var DIRECTIVES = {
+  "zen:if": {
+    name: "zen:if",
+    category: "control-flow",
+    description: "Compile-time conditional directive. Conditionally renders the element based on a boolean expression.",
+    syntax: 'zen:if="condition"',
+    placement: ["element", "component"],
+    example: '<div zen:if="isVisible">Conditionally rendered</div>'
+  },
+  "zen:for": {
+    name: "zen:for",
+    category: "iteration",
+    description: "Compile-time iteration directive. Repeats the element for each item in a collection.",
+    syntax: 'zen:for="item in items" or zen:for="item, index in items"',
+    placement: ["element", "component"],
+    example: '<li zen:for="item in items">{item.name}</li>',
+    createsScope: true,
+    scopeVariables: ["item", "index"]
+  },
+  "zen:effect": {
+    name: "zen:effect",
+    category: "reactive-effect",
+    description: "Compile-time reactive effect directive. Attaches a side effect to the element lifecycle.",
+    syntax: 'zen:effect="expression"',
+    placement: ["element", "component"],
+    example: `<div zen:effect="console.log('rendered')">Content</div>`
+  },
+  "zen:show": {
+    name: "zen:show",
+    category: "conditional-visibility",
+    description: "Compile-time visibility directive. Toggles element visibility without removing from DOM.",
+    syntax: 'zen:show="condition"',
+    placement: ["element", "component"],
+    example: '<div zen:show="isOpen">Toggle visibility</div>'
+  }
+};
+function isDirective(name) {
+  return name in DIRECTIVES;
+}
+function getDirective(name) {
+  return DIRECTIVES[name];
+}
+function getDirectiveNames() {
+  return Object.keys(DIRECTIVES);
+}
+function canPlaceDirective(directiveName, elementType) {
+  const directive = DIRECTIVES[directiveName];
+  if (!directive)
+    return false;
+  if (elementType === "slot")
+    return false;
+  return directive.placement.includes(elementType);
+}
+function parseForExpression(expression) {
+  const match = expression.match(/^\s*([a-zA-Z_$][\w$]*)(?:\s*,\s*([a-zA-Z_$][\w$]*))?\s+in\s+(.+)\s*$/);
+  if (!match)
+    return null;
+  return {
+    itemVar: match[1],
+    indexVar: match[2],
+    source: match[3].trim()
+  };
+}
+
+// src/metadata/core-imports.ts
+var CORE_MODULES = {
+  "zenith": {
+    module: "zenith",
+    description: "Core Zenith runtime primitives and lifecycle hooks.",
+    exports: [
+      {
+        name: "zenEffect",
+        kind: "function",
+        description: "Reactive effect that re-runs when dependencies change.",
+        signature: "zenEffect(callback: () => void | (() => void)): void"
+      },
+      {
+        name: "zenOnMount",
+        kind: "function",
+        description: "Called when component is mounted to the DOM.",
+        signature: "zenOnMount(callback: () => void | (() => void)): void"
+      },
+      {
+        name: "zenOnDestroy",
+        kind: "function",
+        description: "Called when component is removed from the DOM.",
+        signature: "zenOnDestroy(callback: () => void): void"
+      },
+      {
+        name: "zenOnUpdate",
+        kind: "function",
+        description: "Called after any state update causes a re-render.",
+        signature: "zenOnUpdate(callback: () => void): void"
+      },
+      {
+        name: "zenRef",
+        kind: "function",
+        description: "Create a reactive reference.",
+        signature: "zenRef<T>(initial: T): { value: T }"
+      },
+      {
+        name: "zenState",
+        kind: "function",
+        description: "Create reactive state.",
+        signature: "zenState<T>(initial: T): [T, (value: T) => void]"
+      },
+      {
+        name: "zenMemo",
+        kind: "function",
+        description: "Memoize a computed value.",
+        signature: "zenMemo<T>(compute: () => T): T"
+      },
+      {
+        name: "zenBatch",
+        kind: "function",
+        description: "Batch multiple state updates.",
+        signature: "zenBatch(callback: () => void): void"
+      },
+      {
+        name: "zenUntrack",
+        kind: "function",
+        description: "Run code without tracking dependencies.",
+        signature: "zenUntrack<T>(callback: () => T): T"
+      }
+    ]
+  },
+  "zenith/router": {
+    module: "zenith/router",
+    description: "File-based SPA router for Zenith framework.",
+    exports: [
+      {
+        name: "ZenLink",
+        kind: "component",
+        description: "Declarative navigation component for routes.",
+        signature: '<ZenLink to="/path" preload?>{children}</ZenLink>'
+      },
+      {
+        name: "useRoute",
+        kind: "function",
+        description: "Provides reactive access to the current route. Must be called at top-level script scope.",
+        signature: "useRoute(): { path: string; params: Record<string, string>; query: Record<string, string> }"
+      },
+      {
+        name: "useRouter",
+        kind: "function",
+        description: "Provides programmatic navigation methods.",
+        signature: "useRouter(): { navigate: (to: string, options?: { replace?: boolean }) => void; back: () => void; forward: () => void }"
+      },
+      {
+        name: "navigate",
+        kind: "function",
+        description: "Navigate to a route programmatically.",
+        signature: "navigate(to: string, options?: { replace?: boolean }): void"
+      },
+      {
+        name: "prefetch",
+        kind: "function",
+        description: "Prefetch a route for faster navigation.",
+        signature: "prefetch(path: string): Promise<void>"
+      },
+      {
+        name: "isActive",
+        kind: "function",
+        description: "Check if a route is currently active.",
+        signature: "isActive(path: string, exact?: boolean): boolean"
+      },
+      {
+        name: "getRoute",
+        kind: "function",
+        description: "Get the current route state.",
+        signature: "getRoute(): { path: string; params: Record<string, string>; query: Record<string, string> }"
+      }
+    ]
+  }
+};
+function getCoreModule(moduleName) {
+  return CORE_MODULES[moduleName];
+}
+function getCoreExport(moduleName, exportName) {
+  const module2 = CORE_MODULES[moduleName];
+  if (!module2)
+    return void 0;
+  return module2.exports.find((e) => e.name === exportName);
+}
+function isCoreModule(moduleName) {
+  return moduleName in CORE_MODULES;
+}
+
+// src/metadata/plugin-imports.ts
+var PLUGIN_MODULES = {
+  "zenith:content": {
+    module: "zenith:content",
+    description: "Content collections plugin for Zenith. Provides type-safe content management for Markdown, MDX, and JSON files.",
+    exports: [
+      {
+        name: "zenCollection",
+        kind: "function",
+        description: "Define a content collection with schema validation.",
+        signature: "zenCollection<T>(options: { name: string; schema: T }): Collection<T>"
+      },
+      {
+        name: "getCollection",
+        kind: "function",
+        description: "Get all entries from a content collection.",
+        signature: "getCollection(name: string): Promise<CollectionEntry[]>"
+      },
+      {
+        name: "getEntry",
+        kind: "function",
+        description: "Get a single entry from a content collection.",
+        signature: "getEntry(collection: string, slug: string): Promise<CollectionEntry | undefined>"
+      },
+      {
+        name: "useZenOrder",
+        kind: "function",
+        description: "Hook to sort collection entries by frontmatter order field.",
+        signature: "useZenOrder(entries: CollectionEntry[]): CollectionEntry[]"
+      }
+    ],
+    required: false
+  },
+  "zenith:image": {
+    module: "zenith:image",
+    description: "Image optimization plugin for Zenith.",
+    exports: [
+      {
+        name: "Image",
+        kind: "function",
+        description: "Optimized image component with automatic format conversion and lazy loading.",
+        signature: "Image({ src: string; alt: string; width?: number; height?: number })"
+      },
+      {
+        name: "getImage",
+        kind: "function",
+        description: "Get optimized image metadata.",
+        signature: "getImage(src: string, options?: ImageOptions): Promise<ImageMetadata>"
+      }
+    ],
+    required: false
+  }
+};
+function getPluginModule(moduleName) {
+  return PLUGIN_MODULES[moduleName];
+}
+function getPluginExport(moduleName, exportName) {
+  const module2 = PLUGIN_MODULES[moduleName];
+  if (!module2)
+    return void 0;
+  return module2.exports.find((e) => e.name === exportName);
+}
+function isPluginModule(moduleName) {
+  return moduleName.startsWith("zenith:");
+}
+function isKnownPluginModule(moduleName) {
+  return moduleName in PLUGIN_MODULES;
+}
+
+// src/imports.ts
+function parseZenithImports(script) {
+  const imports = [];
+  const lines = script.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const importMatch = line.match(/import\s+(type\s+)?(?:\{([^}]+)\}|(\*\s+as\s+\w+)|(\w+))\s+from\s+['"]([^'"]+)['"]/);
+    if (importMatch) {
+      const isType = !!importMatch[1];
+      const namedImports = importMatch[2];
+      const namespaceImport = importMatch[3];
+      const defaultImport = importMatch[4];
+      const moduleName = importMatch[5];
+      if (moduleName.startsWith("zenith") || moduleName.startsWith("zenith:")) {
+        const specifiers = [];
+        if (namedImports) {
+          const parts = namedImports.split(",");
+          for (const part of parts) {
+            const cleaned = part.trim().split(/\s+as\s+/)[0].trim();
+            if (cleaned)
+              specifiers.push(cleaned);
+          }
+        } else if (namespaceImport) {
+          specifiers.push(namespaceImport.trim());
+        } else if (defaultImport) {
+          specifiers.push(defaultImport);
+        }
+        imports.push({
+          module: moduleName,
+          specifiers,
+          isType,
+          line: i + 1
+        });
+      }
+    }
+    const sideEffectMatch = line.match(/import\s+['"]([^'"]+)['"]/);
+    if (sideEffectMatch && !importMatch) {
+      const moduleName = sideEffectMatch[1];
+      if (moduleName.startsWith("zenith") || moduleName.startsWith("zenith:")) {
+        imports.push({
+          module: moduleName,
+          specifiers: [],
+          isType: false,
+          line: i + 1
+        });
+      }
+    }
+  }
+  return imports;
+}
+function resolveModule(moduleName) {
+  if (isCoreModule(moduleName)) {
+    return {
+      module: moduleName,
+      kind: "core",
+      metadata: getCoreModule(moduleName),
+      isKnown: true
+    };
+  }
+  if (isPluginModule(moduleName)) {
+    return {
+      module: moduleName,
+      kind: "plugin",
+      metadata: getPluginModule(moduleName),
+      isKnown: isKnownPluginModule(moduleName)
+    };
+  }
+  return {
+    module: moduleName,
+    kind: "external",
+    isKnown: false
+  };
+}
+function resolveExport(moduleName, exportName) {
+  if (isCoreModule(moduleName)) {
+    return getCoreExport(moduleName, exportName);
+  }
+  if (isKnownPluginModule(moduleName)) {
+    return getPluginExport(moduleName, exportName);
+  }
+  return void 0;
+}
+function hasRouterImport(imports) {
+  return imports.some((i) => i.module === "zenith/router");
+}
+function getAllModules() {
+  const modules = [];
+  for (const [name, meta] of Object.entries(CORE_MODULES)) {
+    modules.push({
+      module: name,
+      kind: "core",
+      description: meta.description
+    });
+  }
+  for (const [name, meta] of Object.entries(PLUGIN_MODULES)) {
+    modules.push({
+      module: name,
+      kind: "plugin",
+      description: meta.description
+    });
+  }
+  return modules;
+}
+
+// src/router.ts
+var ROUTER_HOOKS = {
+  useRoute: {
+    name: "useRoute",
+    owner: "Router Hook (zenith/router)",
+    description: "Provides reactive access to the current route state.",
+    restrictions: "Must be called at top-level script scope.",
+    returns: "{ path: string; params: Record<string, string>; query: Record<string, string> }",
+    signature: "useRoute(): RouteState"
+  },
+  useRouter: {
+    name: "useRouter",
+    owner: "Router Hook (zenith/router)",
+    description: "Provides programmatic navigation methods.",
+    restrictions: "Must be called at top-level script scope.",
+    returns: "{ navigate, back, forward, go }",
+    signature: "useRouter(): Router"
+  }
+};
+var ZENLINK_PROPS = [
+  {
+    name: "to",
+    type: "string",
+    required: true,
+    description: "The route path to navigate to."
+  },
+  {
+    name: "preload",
+    type: "boolean",
+    required: false,
+    description: "Whether to prefetch the route on hover."
+  },
+  {
+    name: "replace",
+    type: "boolean",
+    required: false,
+    description: "Whether to replace the current history entry instead of pushing a new one."
+  },
+  {
+    name: "class",
+    type: "string",
+    required: false,
+    description: "CSS class to apply to the link."
+  },
+  {
+    name: "activeClass",
+    type: "string",
+    required: false,
+    description: "CSS class to apply when the link is active."
+  }
+];
+var ROUTE_FIELDS = [
+  {
+    name: "path",
+    type: "string",
+    description: 'The current route path (e.g., "/blog/my-post").'
+  },
+  {
+    name: "params",
+    type: "Record<string, string>",
+    description: 'Dynamic route parameters (e.g., { slug: "my-post" }).'
+  },
+  {
+    name: "query",
+    type: "Record<string, string>",
+    description: 'Query string parameters (e.g., { page: "1" }).'
+  }
+];
+function getRouterHook(name) {
+  return ROUTER_HOOKS[name];
+}
+function isRouterHook(name) {
+  return name in ROUTER_HOOKS;
+}
+
+// src/diagnostics.ts
+var import_node = __toESM(require_node3());
+function collectDiagnostics(document, graph) {
+  const diagnostics = [];
+  const text = document.getText();
+  collectComponentDiagnostics(document, text, graph, diagnostics);
+  collectDirectiveDiagnostics(document, text, diagnostics);
+  collectImportDiagnostics(document, text, diagnostics);
+  collectExpressionDiagnostics(document, text, diagnostics);
+  return diagnostics;
+}
+function collectComponentDiagnostics(document, text, graph, diagnostics) {
+  if (!graph)
+    return;
+  const componentPattern = /<([A-Z][a-zA-Z0-9]*)(?=[\s/>])/g;
+  let match;
+  while ((match = componentPattern.exec(text)) !== null) {
+    const componentName = match[1];
+    if (componentName === "ZenLink")
+      continue;
+    const inLayouts = graph.layouts.has(componentName);
+    const inComponents = graph.components.has(componentName);
+    if (!inLayouts && !inComponents) {
+      const startPos = document.positionAt(match.index + 1);
+      const endPos = document.positionAt(match.index + 1 + componentName.length);
+      diagnostics.push({
+        severity: import_node.DiagnosticSeverity.Warning,
+        range: { start: startPos, end: endPos },
+        message: `Unknown component: '<${componentName}>'. Ensure it exists in src/layouts/ or src/components/`,
+        source: "zenith"
+      });
+    }
+  }
+}
+function collectDirectiveDiagnostics(document, text, diagnostics) {
+  const directivePattern = /(zen:(?:if|for|effect|show))\s*=\s*["']([^"']*)["']/g;
+  let match;
+  while ((match = directivePattern.exec(text)) !== null) {
+    const directiveName = match[1];
+    const directiveValue = match[2];
+    if (directiveName === "zen:for") {
+      const parsed = parseForExpression(directiveValue);
+      if (!parsed) {
+        const startPos = document.positionAt(match.index);
+        const endPos = document.positionAt(match.index + match[0].length);
+        diagnostics.push({
+          severity: import_node.DiagnosticSeverity.Error,
+          range: { start: startPos, end: endPos },
+          message: `Invalid zen:for syntax. Expected: "item in items" or "item, index in items"`,
+          source: "zenith"
+        });
+      }
+    }
+    if (!directiveValue.trim()) {
+      const startPos = document.positionAt(match.index);
+      const endPos = document.positionAt(match.index + match[0].length);
+      diagnostics.push({
+        severity: import_node.DiagnosticSeverity.Error,
+        range: { start: startPos, end: endPos },
+        message: `${directiveName} requires a value`,
+        source: "zenith"
+      });
+    }
+  }
+  const slotForPattern = /<slot[^>]*zen:for/g;
+  while ((match = slotForPattern.exec(text)) !== null) {
+    const startPos = document.positionAt(match.index);
+    const endPos = document.positionAt(match.index + match[0].length);
+    diagnostics.push({
+      severity: import_node.DiagnosticSeverity.Error,
+      range: { start: startPos, end: endPos },
+      message: `zen:for cannot be used on <slot> elements`,
+      source: "zenith"
+    });
+  }
+}
+function collectImportDiagnostics(document, text, diagnostics) {
+  const scriptMatch = text.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
+  if (!scriptMatch)
+    return;
+  const scriptContent = scriptMatch[1];
+  const scriptStart = scriptMatch.index + scriptMatch[0].indexOf(scriptContent);
+  const imports = parseZenithImports(scriptContent);
+  for (const imp of imports) {
+    const resolved = resolveModule(imp.module);
+    if (isPluginModule(imp.module) && !resolved.isKnown) {
+      const importPattern = new RegExp(`import[^'"]*['"]${imp.module.replace(":", "\\:")}['"]`);
+      const importMatch = scriptContent.match(importPattern);
+      if (importMatch) {
+        const importOffset = scriptStart + (importMatch.index || 0);
+        const startPos = document.positionAt(importOffset);
+        const endPos = document.positionAt(importOffset + importMatch[0].length);
+        diagnostics.push({
+          severity: import_node.DiagnosticSeverity.Information,
+          range: { start: startPos, end: endPos },
+          message: `Unknown plugin module: '${imp.module}'. Make sure the plugin is installed.`,
+          source: "zenith"
+        });
+      }
+    }
+    if (resolved.isKnown && resolved.metadata) {
+      const validExports = resolved.metadata.exports.map((e) => e.name);
+      for (const specifier of imp.specifiers) {
+        if (!validExports.includes(specifier)) {
+          const specPattern = new RegExp(`\\b${specifier}\\b`);
+          const specMatch = scriptContent.match(specPattern);
+          if (specMatch) {
+            const specOffset = scriptStart + (specMatch.index || 0);
+            const startPos = document.positionAt(specOffset);
+            const endPos = document.positionAt(specOffset + specifier.length);
+            diagnostics.push({
+              severity: import_node.DiagnosticSeverity.Warning,
+              range: { start: startPos, end: endPos },
+              message: `'${specifier}' is not exported from '${imp.module}'`,
+              source: "zenith"
+            });
+          }
+        }
+      }
+    }
+  }
+}
+function collectExpressionDiagnostics(document, text, diagnostics) {
+  const expressionPattern = /\{([^}]+)\}/g;
+  let match;
+  while ((match = expressionPattern.exec(text)) !== null) {
+    const expression = match[1];
+    const offset = match.index;
+    if (expression.includes("eval(") || expression.includes("Function(")) {
+      const startPos = document.positionAt(offset);
+      const endPos = document.positionAt(offset + match[0].length);
+      diagnostics.push({
+        severity: import_node.DiagnosticSeverity.Error,
+        range: { start: startPos, end: endPos },
+        message: `Dangerous pattern detected: eval() and Function() are not allowed in expressions`,
+        source: "zenith"
+      });
+    }
+    if (/\bwith\s*\(/.test(expression)) {
+      const startPos = document.positionAt(offset);
+      const endPos = document.positionAt(offset + match[0].length);
+      diagnostics.push({
+        severity: import_node.DiagnosticSeverity.Error,
+        range: { start: startPos, end: endPos },
+        message: `'with' statement is not allowed in expressions`,
+        source: "zenith"
+      });
+    }
+  }
+}
+
 // src/server.ts
-var connection = (0, import_node.createConnection)(import_node.ProposedFeatures.all);
-var documents = new import_node.TextDocuments(TextDocument);
+var connection = (0, import_node2.createConnection)(import_node2.ProposedFeatures.all);
+var documents = new import_node2.TextDocuments(TextDocument);
 var projectGraphs = /* @__PURE__ */ new Map();
 var LIFECYCLE_HOOKS = [
-  { name: "state", doc: "Declare a reactive state variable", snippet: "state ${1:name} = ${2:value}", kind: import_node.CompletionItemKind.Keyword },
-  { name: "zenOnMount", doc: "Called when component is mounted to the DOM", snippet: "zenOnMount(() => {\n	$0\n})", kind: import_node.CompletionItemKind.Function },
-  { name: "zenOnDestroy", doc: "Called when component is removed from the DOM", snippet: "zenOnDestroy(() => {\n	$0\n})", kind: import_node.CompletionItemKind.Function },
-  { name: "zenOnUpdate", doc: "Called after any state update causes a re-render", snippet: "zenOnUpdate(() => {\n	$0\n})", kind: import_node.CompletionItemKind.Function },
-  { name: "zenEffect", doc: "Reactive effect that re-runs when dependencies change", snippet: "zenEffect(() => {\n	$0\n})", kind: import_node.CompletionItemKind.Function },
-  { name: "useFetch", doc: "Fetch data with caching and SSG support", snippet: 'useFetch("${1:url}")', kind: import_node.CompletionItemKind.Function }
+  { name: "state", doc: "Declare a reactive state variable", snippet: "state ${1:name} = ${2:value}", kind: import_node2.CompletionItemKind.Keyword },
+  { name: "zenOnMount", doc: "Called when component is mounted to the DOM", snippet: "zenOnMount(() => {\n	$0\n})", kind: import_node2.CompletionItemKind.Function },
+  { name: "zenOnDestroy", doc: "Called when component is removed from the DOM", snippet: "zenOnDestroy(() => {\n	$0\n})", kind: import_node2.CompletionItemKind.Function },
+  { name: "zenOnUpdate", doc: "Called after any state update causes a re-render", snippet: "zenOnUpdate(() => {\n	$0\n})", kind: import_node2.CompletionItemKind.Function },
+  { name: "zenEffect", doc: "Reactive effect that re-runs when dependencies change", snippet: "zenEffect(() => {\n	$0\n})", kind: import_node2.CompletionItemKind.Function },
+  { name: "useFetch", doc: "Fetch data with caching and SSG support", snippet: 'useFetch("${1:url}")', kind: import_node2.CompletionItemKind.Function }
 ];
 var HTML_ELEMENTS = [
   { tag: "div", doc: "Generic container element" },
   { tag: "span", doc: "Inline container element" },
   { tag: "p", doc: "Paragraph element" },
   { tag: "a", doc: "Anchor/link element", attrs: 'href="$1"' },
-  { tag: "button", doc: "Button element", attrs: 'onclick="$1"' },
+  { tag: "button", doc: "Button element", attrs: "onclick={$1}" },
   { tag: "input", doc: "Input element", attrs: 'type="$1"', selfClosing: true },
   { tag: "img", doc: "Image element", attrs: 'src="$1" alt="$2"', selfClosing: true },
   { tag: "h1", doc: "Heading level 1" },
@@ -9306,18 +9894,20 @@ var HTML_ATTRIBUTES = [
   "required",
   "hidden"
 ];
-var ZENITH_EVENTS = [
-  "onclick",
-  "onchange",
-  "oninput",
-  "onsubmit",
-  "onkeydown",
-  "onkeyup",
-  "onkeypress",
-  "onfocus",
-  "onblur",
-  "onmouseover",
-  "onmouseout"
+var DOM_EVENTS = [
+  "click",
+  "change",
+  "input",
+  "submit",
+  "keydown",
+  "keyup",
+  "keypress",
+  "focus",
+  "blur",
+  "mouseover",
+  "mouseout",
+  "mouseenter",
+  "mouseleave"
 ];
 function extractStates(script) {
   const states = /* @__PURE__ */ new Map();
@@ -9355,6 +9945,20 @@ function extractFunctions(script) {
   }
   return functions;
 }
+function extractLoopVariables(text) {
+  const vars = [];
+  const loopPattern = /zen:for\s*=\s*["']([^"']+)["']/g;
+  let match;
+  while ((match = loopPattern.exec(text)) !== null) {
+    const parsed = parseForExpression(match[1]);
+    if (parsed) {
+      vars.push(parsed.itemVar);
+      if (parsed.indexVar)
+        vars.push(parsed.indexVar);
+    }
+  }
+  return vars;
+}
 function getScriptContent(text) {
   const match = text.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
   return match ? match[1] : "";
@@ -9384,9 +9988,11 @@ function getPositionContext(text, offset) {
       tagName = tagMatch[1];
     }
   }
-  const wordMatch = before.match(/[a-zA-Z_$][a-zA-Z0-9_$]*$/);
+  const wordMatch = before.match(/[a-zA-Z_$:@][a-zA-Z0-9_$:-]*$/);
   const currentWord = wordMatch ? wordMatch[0] : "";
-  return { inScript, inStyle, inTag, inExpression, inTemplate, inAttributeValue, tagName, currentWord };
+  const afterAt = before.endsWith("@") || currentWord.startsWith("@");
+  const afterColon = before.endsWith(":") || currentWord.startsWith(":") && !currentWord.startsWith(":");
+  return { inScript, inStyle, inTag, inExpression, inTemplate, inAttributeValue, tagName, currentWord, afterAt, afterColon };
 }
 function getProjectGraph(docUri) {
   const filePath = docUri.replace("file://", "");
@@ -9409,10 +10015,10 @@ function invalidateProjectGraph(uri) {
 connection.onInitialize((params) => {
   return {
     capabilities: {
-      textDocumentSync: import_node.TextDocumentSyncKind.Incremental,
+      textDocumentSync: import_node2.TextDocumentSyncKind.Incremental,
       completionProvider: {
         resolveProvider: true,
-        triggerCharacters: ["{", "<", '"', "'", "=", ".", " ", ":", "("]
+        triggerCharacters: ["{", "<", '"', "'", "=", ".", " ", ":", "(", "@"]
       },
       hoverProvider: true
     }
@@ -9430,6 +10036,9 @@ connection.onCompletion((params) => {
   const script = getScriptContent(text);
   const states = extractStates(script);
   const functions = extractFunctions(script);
+  const imports = parseZenithImports(script);
+  const routerEnabled = hasRouterImport(imports);
+  const loopVariables = extractLoopVariables(text);
   const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
   const lineBefore = text.substring(lineStart, offset);
   if (ctx.inScript) {
@@ -9439,23 +10048,38 @@ connection.onCompletion((params) => {
           label: hook.name,
           kind: hook.kind,
           detail: hook.name === "state" ? "Zenith State" : "Zenith Lifecycle",
-          documentation: { kind: import_node.MarkupKind.Markdown, value: hook.doc },
+          documentation: { kind: import_node2.MarkupKind.Markdown, value: hook.doc },
           insertText: hook.snippet,
-          insertTextFormat: import_node.InsertTextFormat.Snippet,
+          insertTextFormat: import_node2.InsertTextFormat.Snippet,
           sortText: `0_${hook.name}`,
-          // Priority sort
           preselect: hook.name === "state" && ctx.currentWord.startsWith("s")
         });
+      }
+    }
+    if (routerEnabled) {
+      for (const hook of Object.values(ROUTER_HOOKS)) {
+        if (!ctx.currentWord || hook.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
+          completions.push({
+            label: hook.name,
+            kind: import_node2.CompletionItemKind.Function,
+            detail: hook.owner,
+            documentation: { kind: import_node2.MarkupKind.Markdown, value: `${hook.description}
+
+**Returns:** \`${hook.returns}\`` },
+            insertText: `${hook.name}()`,
+            sortText: `0_${hook.name}`
+          });
+        }
       }
     }
     for (const func of functions) {
       if (!ctx.currentWord || func.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
         completions.push({
           label: func.name,
-          kind: import_node.CompletionItemKind.Function,
+          kind: import_node2.CompletionItemKind.Function,
           detail: `${func.isAsync ? "async " : ""}function ${func.name}(${func.params})`,
           insertText: `${func.name}($0)`,
-          insertTextFormat: import_node.InsertTextFormat.Snippet
+          insertTextFormat: import_node2.InsertTextFormat.Snippet
         });
       }
     }
@@ -9463,9 +10087,21 @@ connection.onCompletion((params) => {
       if (!ctx.currentWord || name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
         completions.push({
           label: name,
-          kind: import_node.CompletionItemKind.Variable,
+          kind: import_node2.CompletionItemKind.Variable,
           detail: `state ${name}`,
           documentation: `Current value: ${value}`
+        });
+      }
+    }
+    const isImportPath = /from\s+['"][^'"]*$/.test(lineBefore) || /import\s+['"][^'"]*$/.test(lineBefore);
+    if (isImportPath) {
+      for (const mod of getAllModules()) {
+        completions.push({
+          label: mod.module,
+          kind: import_node2.CompletionItemKind.Module,
+          detail: mod.kind === "plugin" ? "Zenith Plugin" : "Zenith Core",
+          documentation: mod.description,
+          insertText: mod.module
         });
       }
     }
@@ -9474,7 +10110,7 @@ connection.onCompletion((params) => {
     for (const [name, value] of states) {
       completions.push({
         label: name,
-        kind: import_node.CompletionItemKind.Variable,
+        kind: import_node2.CompletionItemKind.Variable,
         detail: `state ${name}`,
         documentation: `Value: ${value}`,
         sortText: `0_${name}`
@@ -9483,11 +10119,30 @@ connection.onCompletion((params) => {
     for (const func of functions) {
       completions.push({
         label: func.name,
-        kind: import_node.CompletionItemKind.Function,
+        kind: import_node2.CompletionItemKind.Function,
         detail: `${func.isAsync ? "async " : ""}function`,
         insertText: `${func.name}()`,
         sortText: `1_${func.name}`
       });
+    }
+    for (const loopVar of loopVariables) {
+      completions.push({
+        label: loopVar,
+        kind: import_node2.CompletionItemKind.Variable,
+        detail: "loop variable",
+        sortText: `0_${loopVar}`
+      });
+    }
+    if (routerEnabled) {
+      for (const field of ROUTE_FIELDS) {
+        completions.push({
+          label: `route.${field.name}`,
+          kind: import_node2.CompletionItemKind.Property,
+          detail: field.type,
+          documentation: field.description,
+          sortText: `2_route_${field.name}`
+        });
+      }
     }
   }
   if (ctx.inTemplate && !ctx.inExpression && !ctx.inAttributeValue) {
@@ -9499,13 +10154,13 @@ connection.onCompletion((params) => {
           const propStr = info.props.length > 0 ? ` ${info.props[0]}="$1"` : "";
           completions.push({
             label: name,
-            kind: import_node.CompletionItemKind.Class,
+            kind: import_node2.CompletionItemKind.Class,
             detail: `layout`,
-            documentation: { kind: import_node.MarkupKind.Markdown, value: `**Layout** from \`${path2.basename(info.filePath)}\`
+            documentation: { kind: import_node2.MarkupKind.Markdown, value: `**Layout** from \`${path2.basename(info.filePath)}\`
 
 Props: ${info.props.join(", ") || "none"}` },
             insertText: isAfterOpenBracket ? `${name}${propStr}>$0</${name}>` : `<${name}${propStr}>$0</${name}>`,
-            insertTextFormat: import_node.InsertTextFormat.Snippet,
+            insertTextFormat: import_node2.InsertTextFormat.Snippet,
             sortText: `0_${name}`
           });
         }
@@ -9514,17 +10169,28 @@ Props: ${info.props.join(", ") || "none"}` },
         if (!ctx.currentWord || name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
           completions.push({
             label: name,
-            kind: import_node.CompletionItemKind.Class,
+            kind: import_node2.CompletionItemKind.Class,
             detail: `component`,
-            documentation: { kind: import_node.MarkupKind.Markdown, value: `**Component** from \`${path2.basename(info.filePath)}\`
+            documentation: { kind: import_node2.MarkupKind.Markdown, value: `**Component** from \`${path2.basename(info.filePath)}\`
 
 Props: ${info.props.join(", ") || "none"}` },
             insertText: isAfterOpenBracket ? `${name} $0/>` : `<${name} $0/>`,
-            insertTextFormat: import_node.InsertTextFormat.Snippet,
+            insertTextFormat: import_node2.InsertTextFormat.Snippet,
             sortText: `0_${name}`
           });
         }
       }
+    }
+    if (routerEnabled && (isAfterOpenBracket || isTypingTag && ctx.currentWord.toLowerCase().startsWith("z"))) {
+      completions.push({
+        label: "ZenLink",
+        kind: import_node2.CompletionItemKind.Class,
+        detail: "router component",
+        documentation: { kind: import_node2.MarkupKind.Markdown, value: "**Router Component** (zenith/router)\n\nDeclarative navigation component for routes.\n\n**Props:** to, preload, replace, class, activeClass" },
+        insertText: isAfterOpenBracket ? 'ZenLink to="$1">$0</ZenLink>' : '<ZenLink to="$1">$0</ZenLink>',
+        insertTextFormat: import_node2.InsertTextFormat.Snippet,
+        sortText: "0_ZenLink"
+      });
     }
     if (isAfterOpenBracket || isTypingTag && /^[a-z]/.test(ctx.currentWord)) {
       for (const el of HTML_ELEMENTS) {
@@ -9537,11 +10203,11 @@ Props: ${info.props.join(", ") || "none"}` },
           }
           completions.push({
             label: el.tag,
-            kind: import_node.CompletionItemKind.Property,
+            kind: import_node2.CompletionItemKind.Property,
             detail: "HTML",
             documentation: el.doc,
             insertText: isAfterOpenBracket ? snippet : `<${snippet}>`,
-            insertTextFormat: import_node.InsertTextFormat.Snippet,
+            insertTextFormat: import_node2.InsertTextFormat.Snippet,
             sortText: `1_${el.tag}`
           });
         }
@@ -9549,31 +10215,94 @@ Props: ${info.props.join(", ") || "none"}` },
     }
   }
   if (ctx.inTag && ctx.tagName && !ctx.inAttributeValue) {
+    const elementType = ctx.tagName === "slot" ? "slot" : /^[A-Z]/.test(ctx.tagName) ? "component" : "element";
+    for (const directiveName of getDirectiveNames()) {
+      if (canPlaceDirective(directiveName, elementType)) {
+        if (!ctx.currentWord || directiveName.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
+          const directive = getDirective(directiveName);
+          if (directive) {
+            completions.push({
+              label: directive.name,
+              kind: import_node2.CompletionItemKind.Keyword,
+              detail: directive.category,
+              documentation: { kind: import_node2.MarkupKind.Markdown, value: `${directive.description}
+
+**Syntax:** \`${directive.syntax}\`` },
+              insertText: `${directive.name}="$1"`,
+              insertTextFormat: import_node2.InsertTextFormat.Snippet,
+              sortText: `0_${directive.name}`
+            });
+          }
+        }
+      }
+    }
+    if (ctx.afterAt || ctx.currentWord.startsWith("@")) {
+      for (const event of DOM_EVENTS) {
+        completions.push({
+          label: `@${event}`,
+          kind: import_node2.CompletionItemKind.Event,
+          detail: "event binding",
+          documentation: `Bind to ${event} event`,
+          insertText: `@${event}={$1}`,
+          insertTextFormat: import_node2.InsertTextFormat.Snippet,
+          sortText: `1_@${event}`
+        });
+      }
+    }
+    if (ctx.afterColon || ctx.currentWord.startsWith(":")) {
+      for (const attr of HTML_ATTRIBUTES) {
+        completions.push({
+          label: `:${attr}`,
+          kind: import_node2.CompletionItemKind.Property,
+          detail: "reactive binding",
+          documentation: `Reactive binding for ${attr}`,
+          insertText: `:${attr}="$1"`,
+          insertTextFormat: import_node2.InsertTextFormat.Snippet,
+          sortText: `1_:${attr}`
+        });
+      }
+    }
     if (/^[A-Z]/.test(ctx.tagName) && graph) {
       const component = resolveComponent(graph, ctx.tagName);
       if (component) {
         for (const prop of component.props) {
           completions.push({
             label: prop,
-            kind: import_node.CompletionItemKind.Property,
+            kind: import_node2.CompletionItemKind.Property,
             detail: `prop of <${ctx.tagName}>`,
             insertText: `${prop}={$1}`,
-            insertTextFormat: import_node.InsertTextFormat.Snippet,
+            insertTextFormat: import_node2.InsertTextFormat.Snippet,
             sortText: `0_${prop}`
           });
         }
       }
     }
-    for (const event of ZENITH_EVENTS) {
-      if (!ctx.currentWord || event.startsWith(ctx.currentWord.toLowerCase())) {
+    if (routerEnabled && ctx.tagName === "ZenLink") {
+      for (const prop of ZENLINK_PROPS) {
+        if (!ctx.currentWord || prop.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
+          completions.push({
+            label: prop.name,
+            kind: import_node2.CompletionItemKind.Property,
+            detail: prop.required ? `${prop.type} (required)` : prop.type,
+            documentation: prop.description,
+            insertText: prop.name === "to" ? `${prop.name}="$1"` : `${prop.name}`,
+            insertTextFormat: import_node2.InsertTextFormat.Snippet,
+            sortText: prop.required ? `0_${prop.name}` : `1_${prop.name}`
+          });
+        }
+      }
+    }
+    for (const event of DOM_EVENTS) {
+      const onEvent = `on${event}`;
+      if (!ctx.currentWord || onEvent.startsWith(ctx.currentWord.toLowerCase())) {
         completions.push({
-          label: event,
-          kind: import_node.CompletionItemKind.Event,
-          detail: "Zenith event",
-          documentation: `Bind to ${event.replace("on", "")} event`,
-          insertText: `${event}="$1"`,
-          insertTextFormat: import_node.InsertTextFormat.Snippet,
-          sortText: `1_${event}`
+          label: onEvent,
+          kind: import_node2.CompletionItemKind.Event,
+          detail: "event handler",
+          documentation: `Bind to ${event} event`,
+          insertText: `${onEvent}={$1}`,
+          insertTextFormat: import_node2.InsertTextFormat.Snippet,
+          sortText: `2_${onEvent}`
         });
       }
     }
@@ -9581,22 +10310,22 @@ Props: ${info.props.join(", ") || "none"}` },
       if (!ctx.currentWord || attr.startsWith(ctx.currentWord.toLowerCase())) {
         completions.push({
           label: attr,
-          kind: import_node.CompletionItemKind.Property,
+          kind: import_node2.CompletionItemKind.Property,
           detail: "HTML attribute",
           insertText: `${attr}="$1"`,
-          insertTextFormat: import_node.InsertTextFormat.Snippet,
-          sortText: `2_${attr}`
+          insertTextFormat: import_node2.InsertTextFormat.Snippet,
+          sortText: `3_${attr}`
         });
       }
     }
   }
   if (ctx.inAttributeValue) {
-    const eventMatch = lineBefore.match(/on\w+="[^"]*$/);
+    const eventMatch = lineBefore.match(/(?:on\w+|@\w+)=["'{][^"'{}]*$/);
     if (eventMatch) {
       for (const func of functions) {
         completions.push({
           label: func.name,
-          kind: import_node.CompletionItemKind.Function,
+          kind: import_node2.CompletionItemKind.Function,
           detail: "function",
           insertText: func.name
         });
@@ -9616,16 +10345,69 @@ connection.onHover((params) => {
   const offset = document.offsetAt(params.position);
   const before = text.substring(0, offset);
   const after = text.substring(offset);
-  const wordBefore = before.match(/[a-zA-Z0-9_$]*$/)?.[0] || "";
-  const wordAfter = after.match(/^[a-zA-Z0-9_$]*/)?.[0] || "";
+  const wordBefore = before.match(/[a-zA-Z0-9_$:@-]*$/)?.[0] || "";
+  const wordAfter = after.match(/^[a-zA-Z0-9_$:-]*/)?.[0] || "";
   const word = wordBefore + wordAfter;
   if (!word)
     return null;
+  if (isDirective(word)) {
+    const directive = getDirective(word);
+    if (directive) {
+      let notes = "";
+      if (directive.name === "zen:for") {
+        notes = "- No runtime loop\n- Compiled into static DOM instructions\n- Creates scope: `item`, `index`";
+      } else {
+        notes = "- Compile-time directive\n- No runtime assumptions\n- Processed at build time";
+      }
+      return {
+        contents: {
+          kind: import_node2.MarkupKind.Markdown,
+          value: `### ${directive.name}
+
+${directive.description}
+
+**Syntax:** \`${directive.syntax}\`
+
+**Notes:**
+${notes}
+
+**Example:**
+\`\`\`html
+${directive.example}
+\`\`\``
+        }
+      };
+    }
+  }
+  if (isRouterHook(word)) {
+    const hook2 = getRouterHook(word);
+    if (hook2) {
+      return {
+        contents: {
+          kind: import_node2.MarkupKind.Markdown,
+          value: `### ${hook2.name}()
+
+**${hook2.owner}**
+
+${hook2.description}
+
+**Restrictions:** ${hook2.restrictions}
+
+**Returns:** \`${hook2.returns}\`
+
+**Signature:**
+\`\`\`typescript
+${hook2.signature}
+\`\`\``
+        }
+      };
+    }
+  }
   const hook = LIFECYCLE_HOOKS.find((h) => h.name === word);
   if (hook) {
     return {
       contents: {
-        kind: import_node.MarkupKind.Markdown,
+        kind: import_node2.MarkupKind.Markdown,
         value: `### ${hook.name}
 
 ${hook.doc}
@@ -9636,12 +10418,24 @@ ${hook.snippet.replace(/\$\d/g, "").replace("$0", "// ...")}
       }
     };
   }
+  if (word === "ZenLink") {
+    const script2 = getScriptContent(text);
+    const imports2 = parseZenithImports(script2);
+    if (hasRouterImport(imports2)) {
+      return {
+        contents: {
+          kind: import_node2.MarkupKind.Markdown,
+          value: "### `<ZenLink>`\n\n**Router Component** (zenith/router)\n\nDeclarative navigation component for routes.\n\n**Props:**\n- `to` (string, required) - Route path\n- `preload` (boolean) - Prefetch on hover\n- `replace` (boolean) - Replace history entry\n- `class` (string) - CSS class\n- `activeClass` (string) - Class when active"
+        }
+      };
+    }
+  }
   const script = getScriptContent(text);
   const states = extractStates(script);
   if (states.has(word)) {
     return {
       contents: {
-        kind: import_node.MarkupKind.Markdown,
+        kind: import_node2.MarkupKind.Markdown,
         value: `### state \`${word}\`
 
 **Type:** inferred
@@ -9655,7 +10449,7 @@ ${hook.snippet.replace(/\$\d/g, "").replace("$0", "// ...")}
   if (func) {
     return {
       contents: {
-        kind: import_node.MarkupKind.Markdown,
+        kind: import_node2.MarkupKind.Markdown,
         value: `### ${func.isAsync ? "async " : ""}function \`${func.name}\`
 
 \`\`\`typescript
@@ -9664,13 +10458,38 @@ ${func.isAsync ? "async " : ""}function ${func.name}(${func.params})
       }
     };
   }
+  const imports = parseZenithImports(script);
+  for (const imp of imports) {
+    if (imp.specifiers.includes(word)) {
+      const exportMeta = resolveExport(imp.module, word);
+      if (exportMeta) {
+        const resolved = resolveModule(imp.module);
+        const owner = resolved.kind === "plugin" ? "Plugin" : resolved.kind === "core" ? "Core" : "External";
+        return {
+          contents: {
+            kind: import_node2.MarkupKind.Markdown,
+            value: `### ${word}
+
+**${owner}** (${imp.module})
+
+${exportMeta.description}
+
+**Signature:**
+\`\`\`typescript
+${exportMeta.signature || word}
+\`\`\``
+          }
+        };
+      }
+    }
+  }
   const graph = getProjectGraph(params.textDocument.uri);
   if (graph) {
     const component = resolveComponent(graph, word);
     if (component) {
       return {
         contents: {
-          kind: import_node.MarkupKind.Markdown,
+          kind: import_node2.MarkupKind.Markdown,
           value: `### ${component.type} \`<${component.name}>\`
 
 **File:** \`${component.filePath}\`
@@ -9684,7 +10503,7 @@ ${func.isAsync ? "async " : ""}function ${func.name}(${func.params})
   if (htmlEl) {
     return {
       contents: {
-        kind: import_node.MarkupKind.Markdown,
+        kind: import_node2.MarkupKind.Markdown,
         value: `### HTML \`<${htmlEl.tag}>\`
 
 ${htmlEl.doc}`
@@ -9700,29 +10519,8 @@ documents.onDidOpen((event) => {
   validateDocument(event.document);
 });
 async function validateDocument(document) {
-  const diagnostics = [];
-  const text = document.getText();
   const graph = getProjectGraph(document.uri);
-  if (!graph) {
-    connection.sendDiagnostics({ uri: document.uri, diagnostics: [] });
-    return;
-  }
-  const componentPattern = /<([A-Z][a-zA-Z0-9]*)/g;
-  let match;
-  while ((match = componentPattern.exec(text)) !== null) {
-    const componentName = match[1];
-    const resolved = resolveComponent(graph, componentName);
-    if (!resolved) {
-      const startPos = document.positionAt(match.index + 1);
-      const endPos = document.positionAt(match.index + 1 + componentName.length);
-      diagnostics.push({
-        severity: import_node.DiagnosticSeverity.Warning,
-        range: { start: startPos, end: endPos },
-        message: `Unknown component: '<${componentName}>'. Make sure it exists in src/layouts/ or src/components/`,
-        source: "zenith"
-      });
-    }
-  }
+  const diagnostics = collectDiagnostics(document, graph);
   connection.sendDiagnostics({ uri: document.uri, diagnostics });
 }
 connection.onDidChangeWatchedFiles((params) => {

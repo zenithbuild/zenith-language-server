@@ -1,0 +1,77 @@
+<!--
+  Test Fixture: Content Plugin
+  
+  This file tests Zenith features WITH content plugin imported.
+  The LSP should provide content-aware completions and soft warnings.
+-->
+<script>
+  import { zenEffect, zenOnMount } from 'zenith'
+  import { zenCollection, getCollection, getEntry } from 'zenith:content'
+  
+  state posts = []
+  state currentPost = null
+  
+  // Define a content collection
+  const blogCollection = zenCollection({
+    name: 'blog',
+    schema: {
+      title: 'string',
+      date: 'date',
+      author: 'string',
+      tags: 'array'
+    }
+  })
+  
+  zenOnMount(async () => {
+    // Get all posts from the collection
+    posts = await getCollection('blog')
+  })
+  
+  async function loadPost(slug) {
+    currentPost = await getEntry('blog', slug)
+  }
+</script>
+
+<div class="blog-list">
+  <h1>Blog Posts</h1>
+  
+  <!-- List all posts -->
+  <ul zen:if="posts.length > 0">
+    <li zen:for="post in posts">
+      <h2>{post.data.title}</h2>
+      <p>By {post.data.author} on {post.data.date}</p>
+      <button onclick={() => loadPost(post.slug)}>Read More</button>
+    </li>
+  </ul>
+  
+  <p zen:if="posts.length === 0">Loading posts...</p>
+  
+  <!-- Current post display -->
+  <article zen:if="currentPost">
+    <h1>{currentPost.data.title}</h1>
+    <div class="meta">
+      <span>By {currentPost.data.author}</span>
+      <span>{currentPost.data.date}</span>
+    </div>
+    <div class="content">
+      {currentPost.content}
+    </div>
+  </article>
+</div>
+
+<style>
+  .blog-list {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+  article {
+    margin-top: 2rem;
+    padding-top: 2rem;
+    border-top: 1px solid #eee;
+  }
+  .meta {
+    color: #666;
+    margin-bottom: 1rem;
+  }
+</style>

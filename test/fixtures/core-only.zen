@@ -1,0 +1,59 @@
+<!--
+  Test Fixture: Core Only
+  
+  This file tests core Zenith features WITHOUT router or plugins.
+  The LSP should work correctly with just core functionality.
+-->
+<script>
+  import { zenEffect, zenOnMount } from 'zenith'
+  
+  state count = 0
+  state message = "Hello, Zenith!"
+  
+  function increment() {
+    count++
+  }
+  
+  zenOnMount(() => {
+    console.log('Component mounted')
+  })
+  
+  zenEffect(() => {
+    console.log('Count changed:', count)
+  })
+</script>
+
+<div class="container">
+  <h1>{message}</h1>
+  
+  <!-- zen:if directive -->
+  <p zen:if="count > 0">Count is positive: {count}</p>
+  
+  <!-- zen:for directive -->
+  <ul>
+    <li zen:for="item in ['a', 'b', 'c']">{item}</li>
+  </ul>
+  
+  <!-- zen:show directive -->
+  <span zen:show="count !== 0">Not zero!</span>
+  
+  <!-- Event handlers -->
+  <button onclick={increment}>Increment</button>
+  <button @click={increment}>Also Increment</button>
+  
+  <!-- Reactive bindings -->
+  <input :value="message" />
+  <div :class="count > 0 ? 'positive' : 'zero'">{count}</div>
+</div>
+
+<style>
+  .container {
+    padding: 1rem;
+  }
+  .positive {
+    color: green;
+  }
+  .zero {
+    color: gray;
+  }
+</style>

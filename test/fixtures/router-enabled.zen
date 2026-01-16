@@ -1,0 +1,76 @@
+<!--
+  Test Fixture: Router Enabled
+  
+  This file tests Zenith features WITH router imported.
+  The LSP should provide router-aware completions and hovers.
+-->
+<script>
+  import { zenEffect, zenOnMount } from 'zenith'
+  import { ZenLink, useRoute, useRouter, navigate, prefetch } from 'zenith/router'
+  
+  state activeSection = 'home'
+  
+  // Router hooks - should have hover info
+  const route = useRoute()
+  const router = useRouter()
+  
+  zenOnMount(() => {
+    // Prefetch common routes
+    prefetch('/about')
+    prefetch('/blog')
+  })
+  
+  zenEffect(() => {
+    // React to route changes
+    activeSection = route.path.split('/')[1] || 'home'
+  })
+  
+  function goToAbout() {
+    navigate('/about')
+  }
+  
+  function goBack() {
+    router.back()
+  }
+</script>
+
+<nav>
+  <!-- ZenLink components - should have special highlighting and props -->
+  <ZenLink to="/">Home</ZenLink>
+  <ZenLink to="/about" preload>About</ZenLink>
+  <ZenLink to="/blog" preload replace>Blog</ZenLink>
+  
+  <!-- Dynamic route params -->
+  <ZenLink to="/blog/{route.params.slug}">Current Post</ZenLink>
+</nav>
+
+<main>
+  <h1>Current path: {route.path}</h1>
+  
+  <!-- Route params and query -->
+  <p zen:if="route.params.id">Viewing item: {route.params.id}</p>
+  <p zen:if="route.query.search">Searching: {route.query.search}</p>
+  
+  <div class="actions">
+    <button onclick={goToAbout}>Go to About</button>
+    <button onclick={goBack}>Go Back</button>
+  </div>
+  
+  <!-- Slot for page content -->
+  <slot />
+</main>
+
+<style>
+  nav {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem;
+    background: #f0f0f0;
+  }
+  main {
+    padding: 2rem;
+  }
+  .actions {
+    margin-top: 1rem;
+  }
+</style>

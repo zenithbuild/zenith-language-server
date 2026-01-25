@@ -1,6 +1,6 @@
 {
   "name": "@zenithbuild/language-server",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Language Server for Zenith Framework",
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",

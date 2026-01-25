@@ -1,4 +1,4 @@
-# @zenith/language-server ⚡
+# @zenithbuild/language-server ⚡
 
 The Language Server Protocol (LSP) implementation for the Zenith framework.
 

@@ -25,19 +25,19 @@ export interface ValidationContext {
 export function collectDiagnostics(document: TextDocument, graph: ProjectGraph | null): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
     const text = document.getText();
-    
+
     // Validate component references
     collectComponentDiagnostics(document, text, graph, diagnostics);
-    
+
     // Validate directive usage
     collectDirectiveDiagnostics(document, text, diagnostics);
-    
+
     // Validate imports
     collectImportDiagnostics(document, text, diagnostics);
-    
+
     // Validate expressions
     collectExpressionDiagnostics(document, text, diagnostics);
-    
+
     return diagnostics;
 }
 
@@ -51,25 +51,32 @@ function collectComponentDiagnostics(
     diagnostics: Diagnostic[]
 ): void {
     if (!graph) return;
-    
+
+    // Strip script and style blocks to avoid matching PascalCase names in TS generics
+    // We use a simplified version that preserves indices by replacing content with spaces
+    const strippedText = text
+        .replace(/<(script|style)[^>]*>([\s\S]*?)<\/\1>/gi, (match, tag, content) => {
+            return match.replace(content, ' '.repeat(content.length));
+        });
+
     // Match component tags (PascalCase)
     const componentPattern = /<([A-Z][a-zA-Z0-9]*)(?=[\s/>])/g;
     let match;
-    
-    while ((match = componentPattern.exec(text)) !== null) {
+
+    while ((match = componentPattern.exec(strippedText)) !== null) {
         const componentName = match[1];
-        
+
         // Skip known router components
         if (componentName === 'ZenLink') continue;
-        
+
         // Check if component exists in project graph
         const inLayouts = graph.layouts.has(componentName);
         const inComponents = graph.components.has(componentName);
-        
+
         if (!inLayouts && !inComponents) {
             const startPos = document.positionAt(match.index + 1);
             const endPos = document.positionAt(match.index + 1 + componentName.length);
-            
+
             diagnostics.push({
                 severity: DiagnosticSeverity.Warning,
                 range: { start: startPos, end: endPos },
@@ -91,18 +98,18 @@ function collectDirectiveDiagnostics(
     // Match zen:* directives
     const directivePattern = /(zen:(?:if|for|effect|show))\s*=\s*["']([^"']*)["']/g;
     let match;
-    
+
     while ((match = directivePattern.exec(text)) !== null) {
         const directiveName = match[1];
         const directiveValue = match[2];
-        
+
         // Validate zen:for syntax
         if (directiveName === 'zen:for') {
             const parsed = parseForExpression(directiveValue);
             if (!parsed) {
                 const startPos = document.positionAt(match.index);
                 const endPos = document.positionAt(match.index + match[0].length);
-                
+
                 diagnostics.push({
                     severity: DiagnosticSeverity.Error,
                     range: { start: startPos, end: endPos },
@@ -111,12 +118,12 @@ function collectDirectiveDiagnostics(
                 });
             }
         }
-        
+
         // Check for empty directive values
         if (!directiveValue.trim()) {
             const startPos = document.positionAt(match.index);
             const endPos = document.positionAt(match.index + match[0].length);
-            
+
             diagnostics.push({
                 severity: DiagnosticSeverity.Error,
                 range: { start: startPos, end: endPos },
@@ -125,13 +132,13 @@ function collectDirectiveDiagnostics(
             });
         }
     }
-    
+
     // Check for zen:for on slot elements (forbidden)
     const slotForPattern = /<slot[^>]*zen:for/g;
     while ((match = slotForPattern.exec(text)) !== null) {
         const startPos = document.positionAt(match.index);
         const endPos = document.positionAt(match.index + match[0].length);
-        
+
         diagnostics.push({
             severity: DiagnosticSeverity.Error,
             range: { start: startPos, end: endPos },
@@ -152,26 +159,26 @@ function collectImportDiagnostics(
     // Extract script content
     const scriptMatch = text.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
     if (!scriptMatch) return;
-    
+
     const scriptContent = scriptMatch[1];
     const scriptStart = scriptMatch.index! + scriptMatch[0].indexOf(scriptContent);
-    
+
     const imports = parseZenithImports(scriptContent);
-    
+
     for (const imp of imports) {
         const resolved = resolveModule(imp.module);
-        
+
         // Warn about unknown plugin modules (soft diagnostic)
         if (isPluginModule(imp.module) && !resolved.isKnown) {
             // Find the import line in the document
             const importPattern = new RegExp(`import[^'"]*['"]${imp.module.replace(':', '\\:')}['"]`);
             const importMatch = scriptContent.match(importPattern);
-            
+
             if (importMatch) {
                 const importOffset = scriptStart + (importMatch.index || 0);
                 const startPos = document.positionAt(importOffset);
                 const endPos = document.positionAt(importOffset + importMatch[0].length);
-                
+
                 diagnostics.push({
                     severity: DiagnosticSeverity.Information,
                     range: { start: startPos, end: endPos },
@@ -180,21 +187,21 @@ function collectImportDiagnostics(
                 });
             }
         }
-        
+
         // Check for invalid specifiers in known modules
         if (resolved.isKnown && resolved.metadata) {
             const validExports = resolved.metadata.exports.map(e => e.name);
-            
+
             for (const specifier of imp.specifiers) {
                 if (!validExports.includes(specifier)) {
                     const specPattern = new RegExp(`\\b${specifier}\\b`);
                     const specMatch = scriptContent.match(specPattern);
-                    
+
                     if (specMatch) {
                         const specOffset = scriptStart + (specMatch.index || 0);
                         const startPos = document.positionAt(specOffset);
                         const endPos = document.positionAt(specOffset + specifier.length);
-                        
+
                         diagnostics.push({
                             severity: DiagnosticSeverity.Warning,
                             range: { start: startPos, end: endPos },
@@ -219,16 +226,16 @@ function collectExpressionDiagnostics(
     // Match expressions in templates
     const expressionPattern = /\{([^}]+)\}/g;
     let match;
-    
+
     while ((match = expressionPattern.exec(text)) !== null) {
         const expression = match[1];
         const offset = match.index;
-        
+
         // Check for dangerous patterns
         if (expression.includes('eval(') || expression.includes('Function(')) {
             const startPos = document.positionAt(offset);
             const endPos = document.positionAt(offset + match[0].length);
-            
+
             diagnostics.push({
                 severity: DiagnosticSeverity.Error,
                 range: { start: startPos, end: endPos },
@@ -236,12 +243,12 @@ function collectExpressionDiagnostics(
                 source: 'zenith'
             });
         }
-        
+
         // Check for with statement
         if (/\bwith\s*\(/.test(expression)) {
             const startPos = document.positionAt(offset);
             const endPos = document.positionAt(offset + match[0].length);
-            
+
             diagnostics.push({
                 severity: DiagnosticSeverity.Error,
                 range: { start: startPos, end: endPos },

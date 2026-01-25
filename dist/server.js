@@ -9683,9 +9683,12 @@ function collectDiagnostics(document, graph) {
 function collectComponentDiagnostics(document, text, graph, diagnostics) {
   if (!graph)
     return;
+  const strippedText = text.replace(/<(script|style)[^>]*>([\s\S]*?)<\/\1>/gi, (match2, tag, content) => {
+    return match2.replace(content, " ".repeat(content.length));
+  });
   const componentPattern = /<([A-Z][a-zA-Z0-9]*)(?=[\s/>])/g;
   let match;
-  while ((match = componentPattern.exec(text)) !== null) {
+  while ((match = componentPattern.exec(strippedText)) !== null) {
     const componentName = match[1];
     if (componentName === "ZenLink")
       continue;

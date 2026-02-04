@@ -1,11 +1,11 @@
 {
   "name": "@zenithbuild/language-server",
-  "version": "0.2.8",
+  "version": "1.3.0",
   "description": "Language Server for Zenith Framework",
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",
   "scripts": {
-    "build": "npx esbuild src/server.ts --bundle --outdir=dist --platform=node --format=cjs",
+    "build": "npx esbuild src/server.ts --bundle --outdir=dist --platform=node --format=cjs --external:@zenithbuild/compiler",
     "dev": "npm run build -- --watch",
     "release": "bun run scripts/release.ts",
     "release:dry": "bun run scripts/release.ts --dry-run",
@@ -14,6 +14,7 @@
     "release:major": "bun run scripts/release.ts --bump=major"
   },
   "dependencies": {
+    "@zenithbuild/compiler": "^1.3.0",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.11"
   },

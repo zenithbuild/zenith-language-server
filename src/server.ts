@@ -35,27 +35,27 @@ import {
     ProjectGraph
 } from './project';
 
-import { 
-    DIRECTIVES, 
-    isDirective, 
-    getDirective, 
+import {
+    DIRECTIVES,
+    isDirective,
+    getDirective,
     getDirectiveNames,
     canPlaceDirective,
-    parseForExpression 
+    parseForExpression
 } from './metadata/directive-metadata';
 
-import { 
-    parseZenithImports, 
-    hasRouterImport, 
-    resolveModule, 
+import {
+    parseZenithImports,
+    hasRouterImport,
+    resolveModule,
     resolveExport,
     getAllModules,
-    getModuleExports 
+    getModuleExports
 } from './imports';
 
-import { 
-    ROUTER_HOOKS, 
-    ZENLINK_PROPS, 
+import {
+    ROUTER_HOOKS,
+    ZENLINK_PROPS,
     ROUTE_FIELDS,
     getRouterHook,
     isRouterHook,
@@ -190,7 +190,7 @@ function extractLoopVariables(text: string): string[] {
     const vars: string[] = [];
     const loopPattern = /zen:for\s*=\s*["']([^"']+)["']/g;
     let match;
-    
+
     while ((match = loopPattern.exec(text)) !== null) {
         const parsed = parseForExpression(match[1]);
         if (parsed) {
@@ -198,7 +198,7 @@ function extractLoopVariables(text: string): string[] {
             if (parsed.indexVar) vars.push(parsed.indexVar);
         }
     }
-    
+
     return vars;
 }
 
@@ -257,7 +257,7 @@ function getPositionContext(text: string, offset: number): {
     // Get current word being typed
     const wordMatch = before.match(/[a-zA-Z_$:@][a-zA-Z0-9_$:-]*$/);
     const currentWord = wordMatch ? wordMatch[0] : '';
-    
+
     // Check for @ or : prefix for event/binding completion
     const afterAt = before.endsWith('@') || currentWord.startsWith('@');
     const afterColon = before.endsWith(':') || (currentWord.startsWith(':') && !currentWord.startsWith(':'));
@@ -529,7 +529,7 @@ connection.onCompletion((params: TextDocumentPositionParams): CompletionItem[] =
     if (ctx.inTag && ctx.tagName && !ctx.inAttributeValue) {
         // Directives (zen:if, zen:for, etc.)
         const elementType = ctx.tagName === 'slot' ? 'slot' : (/^[A-Z]/.test(ctx.tagName) ? 'component' : 'element');
-        
+
         for (const directiveName of getDirectiveNames()) {
             if (canPlaceDirective(directiveName, elementType as 'element' | 'component' | 'slot')) {
                 if (!ctx.currentWord || directiveName.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
@@ -693,7 +693,7 @@ connection.onHover((params: TextDocumentPositionParams): Hover | null => {
             } else {
                 notes = '- Compile-time directive\n- No runtime assumptions\n- Processed at build time';
             }
-            
+
             return {
                 contents: {
                     kind: MarkupKind.Markdown,
@@ -822,7 +822,7 @@ documents.onDidOpen(event => {
 
 async function validateDocument(document: TextDocument) {
     const graph = getProjectGraph(document.uri);
-    const diagnostics = collectDiagnostics(document, graph);
+    const diagnostics = await collectDiagnostics(document, graph);
     connection.sendDiagnostics({ uri: document.uri, diagnostics });
 }
 

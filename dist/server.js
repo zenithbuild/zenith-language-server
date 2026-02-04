@@ -9671,9 +9671,28 @@ function isRouterHook(name) {
 
 // src/diagnostics.ts
 var import_node = __toESM(require_node3());
-function collectDiagnostics(document, graph) {
+var import_compiler = require("@zenithbuild/compiler");
+async function collectDiagnostics(document, graph) {
   const diagnostics = [];
   const text = document.getText();
+  const filePath = new URL(document.uri).pathname;
+  try {
+    process.env.ZENITH_CACHE = "1";
+    await (0, import_compiler.compile)(text, filePath);
+  } catch (error) {
+    if (error.name === "InvariantError" || error.name === "CompilerError") {
+      diagnostics.push({
+        severity: import_node.DiagnosticSeverity.Error,
+        range: {
+          start: { line: (error.line || 1) - 1, character: (error.column || 1) - 1 },
+          end: { line: (error.line || 1) - 1, character: (error.column || 1) + 20 }
+          // Approximate
+        },
+        message: `[${error.code}] ${error.message}${error.hints ? "\n\nHints:\n" + error.hints.join("\n") : ""}`,
+        source: "zenith-compiler"
+      });
+    }
+  }
   collectComponentDiagnostics(document, text, graph, diagnostics);
   collectDirectiveDiagnostics(document, text, diagnostics);
   collectImportDiagnostics(document, text, diagnostics);
@@ -9747,6 +9766,17 @@ function collectDirectiveDiagnostics(document, text, diagnostics) {
       source: "zenith"
     });
   }
+  const eventHandlerPattern = /\bon(?:[a-z]+)\s*=\s*["']([^"']*(?:=>|function)[^"']*)["']/gi;
+  while ((match = eventHandlerPattern.exec(text)) !== null) {
+    const startPos = document.positionAt(match.index);
+    const endPos = document.positionAt(match.index + match[0].length);
+    diagnostics.push({
+      severity: import_node.DiagnosticSeverity.Error,
+      range: { start: startPos, end: endPos },
+      message: `Forbidden inline function in event handler. Use a direct symbolic reference instead (e.g. "handleClick").`,
+      source: "zenith"
+    });
+  }
 }
 function collectImportDiagnostics(document, text, diagnostics) {
   const scriptMatch = text.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
@@ -9817,6 +9847,16 @@ function collectExpressionDiagnostics(document, text, diagnostics) {
         severity: import_node.DiagnosticSeverity.Error,
         range: { start: startPos, end: endPos },
         message: `'with' statement is not allowed in expressions`,
+        source: "zenith"
+      });
+    }
+    if (expression.includes(" as ") || expression.includes("<") && expression.includes(">")) {
+      const startPos = document.positionAt(offset);
+      const endPos = document.positionAt(offset + match[0].length);
+      diagnostics.push({
+        severity: import_node.DiagnosticSeverity.Error,
+        range: { start: startPos, end: endPos },
+        message: `TypeScript syntax (type casting or generics) detected in runtime expression. Runtime code must be pure JavaScript.`,
         source: "zenith"
       });
     }
@@ -10523,7 +10563,7 @@ documents.onDidOpen((event) => {
 });
 async function validateDocument(document) {
   const graph = getProjectGraph(document.uri);
-  const diagnostics = collectDiagnostics(document, graph);
+  const diagnostics = await collectDiagnostics(document, graph);
   connection.sendDiagnostics({ uri: document.uri, diagnostics });
 }
 connection.onDidChangeWatchedFiles((params) => {

@@ -19,23 +19,39 @@ export interface ValidationContext {
     graph: ProjectGraph | null;
 }
 
+import { compile } from '@zenithbuild/compiler';
+
 /**
  * Collect all diagnostics for a document
  */
-export function collectDiagnostics(document: TextDocument, graph: ProjectGraph | null): Diagnostic[] {
+export async function collectDiagnostics(document: TextDocument, graph: ProjectGraph | null): Promise<Diagnostic[]> {
     const diagnostics: Diagnostic[] = [];
     const text = document.getText();
+    const filePath = new URL(document.uri).pathname;
 
-    // Validate component references
+    // 1. High-Fidelity Compiler Validation (Native)
+    try {
+        // Enable caching to make this fast for subsequent calls
+        process.env.ZENITH_CACHE = '1';
+        await compile(text, filePath);
+    } catch (error: any) {
+        if (error.name === 'InvariantError' || error.name === 'CompilerError') {
+            diagnostics.push({
+                severity: DiagnosticSeverity.Error,
+                range: {
+                    start: { line: (error.line || 1) - 1, character: (error.column || 1) - 1 },
+                    end: { line: (error.line || 1) - 1, character: (error.column || 1) + 20 } // Approximate
+                },
+                message: `[${error.code}] ${error.message}${error.hints ? '\n\nHints:\n' + error.hints.join('\n') : ''}`,
+                source: 'zenith-compiler'
+            });
+        }
+    }
+
+    // 2. Light-weight LSP rules (Component resolution, etc.)
     collectComponentDiagnostics(document, text, graph, diagnostics);
-
-    // Validate directive usage
     collectDirectiveDiagnostics(document, text, diagnostics);
-
-    // Validate imports
     collectImportDiagnostics(document, text, diagnostics);
-
-    // Validate expressions
     collectExpressionDiagnostics(document, text, diagnostics);
 
     return diagnostics;
@@ -146,6 +162,20 @@ function collectDirectiveDiagnostics(
             source: 'zenith'
         });
     }
+
+    // Check for forbidden inline functions in event handlers (Contract Violation)
+    const eventHandlerPattern = /\bon(?:[a-z]+)\s*=\s*["']([^"']*(?:=>|function)[^"']*)["']/gi;
+    while ((match = eventHandlerPattern.exec(text)) !== null) {
+        const startPos = document.positionAt(match.index);
+        const endPos = document.positionAt(match.index + match[0].length);
+
+        diagnostics.push({
+            severity: DiagnosticSeverity.Error,
+            range: { start: startPos, end: endPos },
+            message: `Forbidden inline function in event handler. Use a direct symbolic reference instead (e.g. "handleClick").`,
+            source: 'zenith'
+        });
+    }
 }
 
 /**
@@ -253,6 +283,19 @@ function collectExpressionDiagnostics(
                 severity: DiagnosticSeverity.Error,
                 range: { start: startPos, end: endPos },
                 message: `'with' statement is not allowed in expressions`,
+                source: 'zenith'
+            });
+        }
+
+        // Check for TypeScript syntax in runtime expressions (Contract Violation)
+        if (expression.includes(' as ') || (expression.includes('<') && expression.includes('>'))) {
+            const startPos = document.positionAt(offset);
+            const endPos = document.positionAt(offset + match[0].length);
+
+            diagnostics.push({
+                severity: DiagnosticSeverity.Error,
+                range: { start: startPos, end: endPos },
+                message: `TypeScript syntax (type casting or generics) detected in runtime expression. Runtime code must be pure JavaScript.`,
                 source: 'zenith'
             });
         }

@@ -1,23 +1,32 @@
-# 🚀 @zenithbuild/language-server v0.2.8
+# 🚀 @zenithbuild/language-server v0.2.9
 
-## [0.2.8] - 2026-01-26
+## [0.2.9] - 2026-02-15
 
-### 📝 Other Changes
+### ✨ Contract Updates
 
-- **** ()
+- Added component script policy diagnostics with configurable mode:
+  - `zenith.componentScripts = "forbid" | "allow"`.
+- Added event binding syntax diagnostics and quick fixes:
+  - invalid: `onclick="..."`, `@click={...}`
+  - valid: `on:click={handler}`.
+- Added Tailwind v4-compatible CSS import contract diagnostics:
+  - allow local CSS imports (including `?query`/`#hash` suffixes)
+  - fail bare CSS package imports and project-root traversal escapes.
+- Added workspace-aware project root resolution heuristics.
+- Added unit tests for root resolution, CSS suffix/path contracts, component script diagnostics, and event-binding code actions.
 
 
 
 ## 📦 Installation
 
 ```bash
-bun add @zenithbuild/language-server@0.2.8
+bun add @zenithbuild/language-server@0.2.9
 ```
 
 *or with npm:*
 
 ```bash
-npm install @zenithbuild/language-server@0.2.8
+npm install @zenithbuild/language-server@0.2.9
 ```
 
 ---

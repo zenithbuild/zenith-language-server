@@ -1,97 +1,392 @@
 /**
  * Diagnostics
- * 
- * Compile-time validation mirroring the Zenith compiler.
- * The LSP must surface compiler-level errors early.
- * 
- * Important: No runtime execution. Pure static analysis only.
+ *
+ * Compile-time validation mirroring Zenith contracts.
+ * No runtime execution. Pure static analysis only.
  */
 
-import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver/node';
-import { TextDocument } from 'vscode-languageserver-textdocument';
-import { isDirective, parseForExpression } from './metadata/directive-metadata';
+import * as path from 'path';
+
+import { parseForExpression } from './metadata/directive-metadata';
 import { parseZenithImports, resolveModule, isPluginModule } from './imports';
 import type { ProjectGraph } from './project';
+import {
+    classifyZenithFile,
+    isCssContractImportSpecifier,
+    isLocalCssSpecifier,
+    resolveCssImportPath
+} from './contracts';
+import type { ZenithServerSettings } from './settings';
+import { EVENT_BINDING_DIAGNOSTIC_CODE } from './code-actions';
 
-export interface ValidationContext {
-    document: TextDocument;
-    text: string;
-    graph: ProjectGraph | null;
+const COMPONENT_SCRIPT_CONTRACT_MESSAGE =
+    'Zenith Contract Violation: Components are structural; move <script> to the parent route scope.';
+
+const CSS_BARE_IMPORT_MESSAGE =
+    'CSS import contract violation: bare CSS imports are not supported.';
+
+const CSS_ESCAPE_MESSAGE =
+    'CSS import contract violation: imported CSS path escapes project root.';
+
+const DiagnosticSeverity = {
+    Error: 1,
+    Warning: 2,
+    Information: 3,
+    Hint: 4
+} as const;
+
+export interface ZenithPosition {
+    line: number;
+    character: number;
 }
 
-import { compile } from '@zenithbuild/compiler';
+export interface ZenithRange {
+    start: ZenithPosition;
+    end: ZenithPosition;
+}
+
+export interface ZenithDiagnostic {
+    severity: number;
+    range: ZenithRange;
+    message: string;
+    source: string;
+    code?: string;
+    data?: unknown;
+}
+
+export interface ZenithTextDocumentLike {
+    uri: string;
+    getText(): string;
+    positionAt(offset: number): ZenithPosition;
+}
+
+function uriToFilePath(uri: string): string {
+    try {
+        return decodeURIComponent(new URL(uri).pathname);
+    } catch {
+        return decodeURIComponent(uri.replace('file://', ''));
+    }
+}
+
+function stripScriptAndStylePreserveIndices(text: string): string {
+    return text.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, (match) => ' '.repeat(match.length));
+}
+
+interface ScriptBlock {
+    content: string;
+    contentStartOffset: number;
+}
+
+function getScriptBlocks(text: string): ScriptBlock[] {
+    const blocks: ScriptBlock[] = [];
+    const scriptPattern = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+    let match: RegExpExecArray | null;
+
+    while ((match = scriptPattern.exec(text)) !== null) {
+        const whole = match[0] || '';
+        const content = match[1] || '';
+        const localStart = whole.indexOf(content);
+        const contentStartOffset = (match.index || 0) + Math.max(localStart, 0);
+        blocks.push({ content, contentStartOffset });
+    }
+
+    return blocks;
+}
+
+interface ParsedImportSpecifier {
+    specifier: string;
+    startOffset: number;
+    endOffset: number;
+}
+
+function parseImportSpecifiers(scriptContent: string, scriptStartOffset: number): ParsedImportSpecifier[] {
+    const imports: ParsedImportSpecifier[] = [];
+    const importPattern = /import\s+(?:[^'";]+?\s+from\s+)?['"]([^'"\n]+)['"]/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = importPattern.exec(scriptContent)) !== null) {
+        const statement = match[0] || '';
+        const specifier = match[1] || '';
+        const rel = statement.indexOf(specifier);
+        const startOffset = scriptStartOffset + (match.index || 0) + Math.max(rel, 0);
+        const endOffset = startOffset + specifier.length;
+        imports.push({ specifier, startOffset, endOffset });
+    }
+
+    return imports;
+}
+
+function normalizeEventHandlerValue(rawValue: string): string {
+    let value = rawValue.trim();
+
+    if ((value.startsWith('{') && value.endsWith('}')) ||
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1).trim();
+    }
+
+    if (/^[a-zA-Z_$][a-zA-Z0-9_$]*\(\)$/.test(value)) {
+        value = value.slice(0, -2);
+    }
+
+    if (!value) {
+        return 'handler';
+    }
+
+    return value;
+}
 
 /**
- * Collect all diagnostics for a document
+ * Collect all diagnostics for a document.
  */
-export async function collectDiagnostics(document: TextDocument, graph: ProjectGraph | null): Promise<Diagnostic[]> {
-    const diagnostics: Diagnostic[] = [];
+export async function collectDiagnostics(
+    document: ZenithTextDocumentLike,
+    graph: ProjectGraph | null,
+    settings: ZenithServerSettings,
+    projectRoot: string | null
+): Promise<ZenithDiagnostic[]> {
+    const diagnostics: ZenithDiagnostic[] = [];
     const text = document.getText();
-    const filePath = new URL(document.uri).pathname;
+    const filePath = uriToFilePath(document.uri);
 
-    // 1. High-Fidelity Compiler Validation (Native)
+    let hasComponentScriptCompilerDiagnostic = false;
+
+    // 1) Compiler validation (source-of-truth), with configurable suppression for component script contract.
     try {
-        // Enable caching to make this fast for subsequent calls
         process.env.ZENITH_CACHE = '1';
+        const { compile } = await import('@zenithbuild/compiler');
         await compile(text, filePath);
     } catch (error: any) {
-        if (error.name === 'InvariantError' || error.name === 'CompilerError') {
+        const message = String(error?.message || 'Unknown compiler error');
+        const isContractViolation = message.includes(COMPONENT_SCRIPT_CONTRACT_MESSAGE);
+
+        if (isContractViolation) {
+            hasComponentScriptCompilerDiagnostic = true;
+        }
+
+        if (!(settings.componentScripts === 'allow' && isContractViolation)) {
             diagnostics.push({
                 severity: DiagnosticSeverity.Error,
                 range: {
-                    start: { line: (error.line || 1) - 1, character: (error.column || 1) - 1 },
-                    end: { line: (error.line || 1) - 1, character: (error.column || 1) + 20 } // Approximate
+                    start: { line: (error?.line || 1) - 1, character: (error?.column || 1) - 1 },
+                    end: { line: (error?.line || 1) - 1, character: (error?.column || 1) + 20 }
                 },
-                message: `[${error.code}] ${error.message}${error.hints ? '\n\nHints:\n' + error.hints.join('\n') : ''}`,
+                message: `[${error?.code || 'compiler'}] ${message}${error?.hints ? '\n\nHints:\n' + error.hints.join('\n') : ''}`,
                 source: 'zenith-compiler'
             });
         }
     }
 
-    // 2. Light-weight LSP rules (Component resolution, etc.)
-    collectComponentDiagnostics(document, text, graph, diagnostics);
-    collectDirectiveDiagnostics(document, text, diagnostics);
-    collectImportDiagnostics(document, text, diagnostics);
-    collectExpressionDiagnostics(document, text, diagnostics);
+    diagnostics.push(
+        ...collectContractDiagnostics(
+            document,
+            graph,
+            settings,
+            projectRoot,
+            hasComponentScriptCompilerDiagnostic
+        )
+    );
 
     return diagnostics;
 }
 
+export function collectContractDiagnostics(
+    document: ZenithTextDocumentLike,
+    graph: ProjectGraph | null,
+    settings: ZenithServerSettings,
+    projectRoot: string | null,
+    hasComponentScriptCompilerDiagnostic = false
+): ZenithDiagnostic[] {
+    const diagnostics: ZenithDiagnostic[] = [];
+    const text = document.getText();
+    const filePath = uriToFilePath(document.uri);
+
+    collectComponentScriptDiagnostics(document, text, filePath, settings, diagnostics, hasComponentScriptCompilerDiagnostic);
+    collectEventBindingDiagnostics(document, text, diagnostics);
+    collectDirectiveDiagnostics(document, text, diagnostics);
+    collectImportDiagnostics(document, text, diagnostics);
+    collectCssImportContractDiagnostics(document, text, filePath, projectRoot, diagnostics);
+    collectExpressionDiagnostics(document, text, diagnostics);
+    collectComponentDiagnostics(document, text, graph, diagnostics);
+
+    return diagnostics;
+}
+
+function collectComponentScriptDiagnostics(
+    document: ZenithTextDocumentLike,
+    text: string,
+    filePath: string,
+    settings: ZenithServerSettings,
+    diagnostics: ZenithDiagnostic[],
+    hasComponentScriptCompilerDiagnostic: boolean
+): void {
+    if (settings.componentScripts !== 'forbid') {
+        return;
+    }
+
+    if (classifyZenithFile(filePath) !== 'component') {
+        return;
+    }
+
+    if (hasComponentScriptCompilerDiagnostic) {
+        return;
+    }
+
+    const scriptTagMatch = /<script\b[^>]*>/i.exec(text);
+    if (!scriptTagMatch || scriptTagMatch.index == null) {
+        return;
+    }
+
+    diagnostics.push({
+        severity: DiagnosticSeverity.Error,
+        range: {
+            start: document.positionAt(scriptTagMatch.index),
+            end: document.positionAt(scriptTagMatch.index + scriptTagMatch[0].length)
+        },
+        message: COMPONENT_SCRIPT_CONTRACT_MESSAGE,
+        source: 'zenith-contract'
+    });
+}
+
+function collectEventBindingDiagnostics(
+    document: ZenithTextDocumentLike,
+    text: string,
+    diagnostics: ZenithDiagnostic[]
+): void {
+    const stripped = stripScriptAndStylePreserveIndices(text);
+
+    // Invalid @click={handler}
+    const atEventPattern = /@([a-zA-Z][a-zA-Z0-9_-]*)\s*=\s*(\{[^}]*\}|"[^"]*"|'[^']*')/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = atEventPattern.exec(stripped)) !== null) {
+        const fullMatch = match[0] || '';
+        const eventName = match[1] || 'click';
+        const rawHandler = match[2] || '{handler}';
+        const handler = normalizeEventHandlerValue(rawHandler);
+        const replacement = `on:${eventName}={${handler}}`;
+
+        diagnostics.push({
+            severity: DiagnosticSeverity.Error,
+            range: {
+                start: document.positionAt(match.index || 0),
+                end: document.positionAt((match.index || 0) + fullMatch.length)
+            },
+            message: `Invalid event binding syntax. Use on:${eventName}={handler}.`,
+            source: 'zenith-contract',
+            code: EVENT_BINDING_DIAGNOSTIC_CODE,
+            data: {
+                replacement,
+                title: `Convert to ${replacement}`
+            }
+        });
+    }
+
+    // Invalid onclick="handler" / onclick={handler}
+    const onEventPattern = /\bon([a-zA-Z][a-zA-Z0-9_-]*)\s*=\s*(\{[^}]*\}|"[^"]*"|'[^']*')/g;
+    while ((match = onEventPattern.exec(stripped)) !== null) {
+        const fullMatch = match[0] || '';
+        const eventName = match[1] || 'click';
+        const rawHandler = match[2] || '{handler}';
+        const handler = normalizeEventHandlerValue(rawHandler);
+        const replacement = `on:${eventName}={${handler}}`;
+
+        diagnostics.push({
+            severity: DiagnosticSeverity.Error,
+            range: {
+                start: document.positionAt(match.index || 0),
+                end: document.positionAt((match.index || 0) + fullMatch.length)
+            },
+            message: `Invalid event binding syntax. Use on:${eventName}={handler}.`,
+            source: 'zenith-contract',
+            code: EVENT_BINDING_DIAGNOSTIC_CODE,
+            data: {
+                replacement,
+                title: `Convert to ${replacement}`
+            }
+        });
+    }
+}
+
+function collectCssImportContractDiagnostics(
+    document: ZenithTextDocumentLike,
+    text: string,
+    filePath: string,
+    projectRoot: string | null,
+    diagnostics: ZenithDiagnostic[]
+): void {
+    const scriptBlocks = getScriptBlocks(text);
+    if (scriptBlocks.length === 0) {
+        return;
+    }
+
+    const effectiveProjectRoot = projectRoot ? path.resolve(projectRoot) : path.dirname(filePath);
+
+    for (const block of scriptBlocks) {
+        const imports = parseImportSpecifiers(block.content, block.contentStartOffset);
+        for (const imp of imports) {
+            if (!isCssContractImportSpecifier(imp.specifier)) {
+                continue;
+            }
+
+            if (!isLocalCssSpecifier(imp.specifier)) {
+                diagnostics.push({
+                    severity: DiagnosticSeverity.Error,
+                    range: {
+                        start: document.positionAt(imp.startOffset),
+                        end: document.positionAt(imp.endOffset)
+                    },
+                    message: CSS_BARE_IMPORT_MESSAGE,
+                    source: 'zenith-contract'
+                });
+                continue;
+            }
+
+            const resolved = resolveCssImportPath(filePath, imp.specifier, effectiveProjectRoot);
+            if (resolved.escapesProjectRoot) {
+                diagnostics.push({
+                    severity: DiagnosticSeverity.Error,
+                    range: {
+                        start: document.positionAt(imp.startOffset),
+                        end: document.positionAt(imp.endOffset)
+                    },
+                    message: CSS_ESCAPE_MESSAGE,
+                    source: 'zenith-contract'
+                });
+            }
+        }
+    }
+}
+
 /**
- * Validate component references
+ * Validate component references.
  */
 function collectComponentDiagnostics(
-    document: TextDocument,
+    document: ZenithTextDocumentLike,
     text: string,
     graph: ProjectGraph | null,
-    diagnostics: Diagnostic[]
+    diagnostics: ZenithDiagnostic[]
 ): void {
     if (!graph) return;
 
-    // Strip script and style blocks to avoid matching PascalCase names in TS generics
-    // We use a simplified version that preserves indices by replacing content with spaces
     const strippedText = text
-        .replace(/<(script|style)[^>]*>([\s\S]*?)<\/\1>/gi, (match, tag, content) => {
+        .replace(/<(script|style)[^>]*>([\s\S]*?)<\/\1>/gi, (match, _tag, content) => {
             return match.replace(content, ' '.repeat(content.length));
         });
 
-    // Match component tags (PascalCase)
     const componentPattern = /<([A-Z][a-zA-Z0-9]*)(?=[\s/>])/g;
-    let match;
+    let match: RegExpExecArray | null;
 
     while ((match = componentPattern.exec(strippedText)) !== null) {
         const componentName = match[1];
-
-        // Skip known router components
         if (componentName === 'ZenLink') continue;
 
-        // Check if component exists in project graph
         const inLayouts = graph.layouts.has(componentName);
         const inComponents = graph.components.has(componentName);
 
         if (!inLayouts && !inComponents) {
-            const startPos = document.positionAt(match.index + 1);
-            const endPos = document.positionAt(match.index + 1 + componentName.length);
+            const startPos = document.positionAt((match.index || 0) + 1);
+            const endPos = document.positionAt((match.index || 0) + 1 + componentName.length);
 
             diagnostics.push({
                 severity: DiagnosticSeverity.Warning,
@@ -104,41 +399,38 @@ function collectComponentDiagnostics(
 }
 
 /**
- * Validate directive usage
+ * Validate directive usage.
  */
 function collectDirectiveDiagnostics(
-    document: TextDocument,
+    document: ZenithTextDocumentLike,
     text: string,
-    diagnostics: Diagnostic[]
+    diagnostics: ZenithDiagnostic[]
 ): void {
-    // Match zen:* directives
     const directivePattern = /(zen:(?:if|for|effect|show))\s*=\s*["']([^"']*)["']/g;
-    let match;
+    let match: RegExpExecArray | null;
 
     while ((match = directivePattern.exec(text)) !== null) {
         const directiveName = match[1];
         const directiveValue = match[2];
 
-        // Validate zen:for syntax
         if (directiveName === 'zen:for') {
             const parsed = parseForExpression(directiveValue);
             if (!parsed) {
-                const startPos = document.positionAt(match.index);
-                const endPos = document.positionAt(match.index + match[0].length);
+                const startPos = document.positionAt(match.index || 0);
+                const endPos = document.positionAt((match.index || 0) + (match[0] || '').length);
 
                 diagnostics.push({
                     severity: DiagnosticSeverity.Error,
                     range: { start: startPos, end: endPos },
-                    message: `Invalid zen:for syntax. Expected: "item in items" or "item, index in items"`,
+                    message: 'Invalid zen:for syntax. Expected: "item in items" or "item, index in items"',
                     source: 'zenith'
                 });
             }
         }
 
-        // Check for empty directive values
         if (!directiveValue.trim()) {
-            const startPos = document.positionAt(match.index);
-            const endPos = document.positionAt(match.index + match[0].length);
+            const startPos = document.positionAt(match.index || 0);
+            const endPos = document.positionAt((match.index || 0) + (match[0] || '').length);
 
             diagnostics.push({
                 severity: DiagnosticSeverity.Error,
@@ -149,59 +441,40 @@ function collectDirectiveDiagnostics(
         }
     }
 
-    // Check for zen:for on slot elements (forbidden)
     const slotForPattern = /<slot[^>]*zen:for/g;
     while ((match = slotForPattern.exec(text)) !== null) {
-        const startPos = document.positionAt(match.index);
-        const endPos = document.positionAt(match.index + match[0].length);
+        const startPos = document.positionAt(match.index || 0);
+        const endPos = document.positionAt((match.index || 0) + (match[0] || '').length);
 
         diagnostics.push({
             severity: DiagnosticSeverity.Error,
             range: { start: startPos, end: endPos },
-            message: `zen:for cannot be used on <slot> elements`,
-            source: 'zenith'
-        });
-    }
-
-    // Check for forbidden inline functions in event handlers (Contract Violation)
-    const eventHandlerPattern = /\bon(?:[a-z]+)\s*=\s*["']([^"']*(?:=>|function)[^"']*)["']/gi;
-    while ((match = eventHandlerPattern.exec(text)) !== null) {
-        const startPos = document.positionAt(match.index);
-        const endPos = document.positionAt(match.index + match[0].length);
-
-        diagnostics.push({
-            severity: DiagnosticSeverity.Error,
-            range: { start: startPos, end: endPos },
-            message: `Forbidden inline function in event handler. Use a direct symbolic reference instead (e.g. "handleClick").`,
+            message: 'zen:for cannot be used on <slot> elements',
             source: 'zenith'
         });
     }
 }
 
 /**
- * Validate imports
+ * Validate imports.
  */
 function collectImportDiagnostics(
-    document: TextDocument,
+    document: ZenithTextDocumentLike,
     text: string,
-    diagnostics: Diagnostic[]
+    diagnostics: ZenithDiagnostic[]
 ): void {
-    // Extract script content
     const scriptMatch = text.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
     if (!scriptMatch) return;
 
     const scriptContent = scriptMatch[1];
-    const scriptStart = scriptMatch.index! + scriptMatch[0].indexOf(scriptContent);
-
+    const scriptStart = (scriptMatch.index || 0) + scriptMatch[0].indexOf(scriptContent);
     const imports = parseZenithImports(scriptContent);
 
     for (const imp of imports) {
         const resolved = resolveModule(imp.module);
 
-        // Warn about unknown plugin modules (soft diagnostic)
         if (isPluginModule(imp.module) && !resolved.isKnown) {
-            // Find the import line in the document
-            const importPattern = new RegExp(`import[^'"]*['"]${imp.module.replace(':', '\\:')}['"]`);
+            const importPattern = new RegExp(`import[^'\"]*['\"]${imp.module.replace(':', '\\:')}['\"]`);
             const importMatch = scriptContent.match(importPattern);
 
             if (importMatch) {
@@ -218,9 +491,8 @@ function collectImportDiagnostics(
             }
         }
 
-        // Check for invalid specifiers in known modules
         if (resolved.isKnown && resolved.metadata) {
-            const validExports = resolved.metadata.exports.map(e => e.name);
+            const validExports = resolved.metadata.exports.map((e) => e.name);
 
             for (const specifier of imp.specifiers) {
                 if (!validExports.includes(specifier)) {
@@ -246,58 +518,60 @@ function collectImportDiagnostics(
 }
 
 /**
- * Validate expressions for dangerous patterns
+ * Validate expressions for dangerous patterns.
  */
 function collectExpressionDiagnostics(
-    document: TextDocument,
+    document: ZenithTextDocumentLike,
     text: string,
-    diagnostics: Diagnostic[]
+    diagnostics: ZenithDiagnostic[]
 ): void {
-    // Match expressions in templates
     const expressionPattern = /\{([^}]+)\}/g;
-    let match;
+    let match: RegExpExecArray | null;
 
     while ((match = expressionPattern.exec(text)) !== null) {
         const expression = match[1];
-        const offset = match.index;
+        const offset = match.index || 0;
 
-        // Check for dangerous patterns
         if (expression.includes('eval(') || expression.includes('Function(')) {
             const startPos = document.positionAt(offset);
-            const endPos = document.positionAt(offset + match[0].length);
+            const endPos = document.positionAt(offset + (match[0] || '').length);
 
             diagnostics.push({
                 severity: DiagnosticSeverity.Error,
                 range: { start: startPos, end: endPos },
-                message: `Dangerous pattern detected: eval() and Function() are not allowed in expressions`,
+                message: 'Dangerous pattern detected: eval() and Function() are not allowed in expressions',
                 source: 'zenith'
             });
         }
 
-        // Check for with statement
         if (/\bwith\s*\(/.test(expression)) {
             const startPos = document.positionAt(offset);
-            const endPos = document.positionAt(offset + match[0].length);
+            const endPos = document.positionAt(offset + (match[0] || '').length);
 
             diagnostics.push({
                 severity: DiagnosticSeverity.Error,
                 range: { start: startPos, end: endPos },
-                message: `'with' statement is not allowed in expressions`,
+                message: "'with' statement is not allowed in expressions",
                 source: 'zenith'
             });
         }
 
-        // Check for TypeScript syntax in runtime expressions (Contract Violation)
         if (expression.includes(' as ') || (expression.includes('<') && expression.includes('>'))) {
             const startPos = document.positionAt(offset);
-            const endPos = document.positionAt(offset + match[0].length);
+            const endPos = document.positionAt(offset + (match[0] || '').length);
 
             diagnostics.push({
                 severity: DiagnosticSeverity.Error,
                 range: { start: startPos, end: endPos },
-                message: `TypeScript syntax (type casting or generics) detected in runtime expression. Runtime code must be pure JavaScript.`,
+                message: 'TypeScript syntax (type casting or generics) detected in runtime expression. Runtime code must be pure JavaScript.',
                 source: 'zenith'
             });
         }
     }
 }
+
+export const CONTRACT_MESSAGES = {
+    componentScript: COMPONENT_SCRIPT_CONTRACT_MESSAGE,
+    cssBareImport: CSS_BARE_IMPORT_MESSAGE,
+    cssEscape: CSS_ESCAPE_MESSAGE
+} as const;

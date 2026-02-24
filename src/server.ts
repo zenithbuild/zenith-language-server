@@ -15,9 +15,12 @@ import {
     TextDocuments,
     ProposedFeatures,
     InitializeParams,
+    DidChangeConfigurationNotification,
     CompletionItem,
     CompletionItemKind,
     TextDocumentPositionParams,
+    CodeActionParams,
+    CodeAction,
     TextDocumentSyncKind,
     InitializeResult,
     Hover,
@@ -63,6 +66,8 @@ import {
 } from './router';
 
 import { collectDiagnostics } from './diagnostics';
+import { buildEventBindingCodeActions } from './code-actions';
+import { DEFAULT_SETTINGS, normalizeSettings, ZenithServerSettings } from './settings';
 
 // Create connection and document manager
 const connection = createConnection(ProposedFeatures.all);
@@ -70,6 +75,8 @@ const documents = new TextDocuments(TextDocument);
 
 // Project graph cache
 let projectGraphs: Map<string, ProjectGraph> = new Map();
+let workspaceFolders: string[] = [];
+let globalSettings: ZenithServerSettings = DEFAULT_SETTINGS;
 
 // Lifecycle hooks with documentation
 const LIFECYCLE_HOOKS = [
@@ -87,7 +94,7 @@ const HTML_ELEMENTS = [
     { tag: 'span', doc: 'Inline container element' },
     { tag: 'p', doc: 'Paragraph element' },
     { tag: 'a', doc: 'Anchor/link element', attrs: 'href="$1"' },
-    { tag: 'button', doc: 'Button element', attrs: 'onclick={$1}' },
+    { tag: 'button', doc: 'Button element', attrs: 'on:click={$1}' },
     { tag: 'input', doc: 'Input element', attrs: 'type="$1"', selfClosing: true },
     { tag: 'img', doc: 'Image element', attrs: 'src="$1" alt="$2"', selfClosing: true },
     { tag: 'h1', doc: 'Heading level 1' },
@@ -133,7 +140,7 @@ const HTML_ATTRIBUTES = [
     'placeholder', 'disabled', 'checked', 'readonly', 'required', 'hidden'
 ];
 
-// DOM events for @event and onclick handlers
+// DOM events for on:event handlers
 const DOM_EVENTS = [
     'click', 'change', 'input', 'submit', 'keydown', 'keyup', 'keypress',
     'focus', 'blur', 'mouseover', 'mouseout', 'mouseenter', 'mouseleave'
@@ -268,7 +275,7 @@ function getPositionContext(text: string, offset: number): {
 // Get project graph for a document
 function getProjectGraph(docUri: string): ProjectGraph | null {
     const filePath = docUri.replace('file://', '');
-    const projectRoot = detectProjectRoot(path.dirname(filePath));
+    const projectRoot = detectProjectRoot(path.dirname(filePath), workspaceFolders);
 
     if (!projectRoot) {
         return null;
@@ -284,13 +291,19 @@ function getProjectGraph(docUri: string): ProjectGraph | null {
 // Invalidate project graph on file changes
 function invalidateProjectGraph(uri: string) {
     const filePath = uri.replace('file://', '');
-    const projectRoot = detectProjectRoot(path.dirname(filePath));
+    const projectRoot = detectProjectRoot(path.dirname(filePath), workspaceFolders);
     if (projectRoot) {
         projectGraphs.delete(projectRoot);
     }
 }
 
 connection.onInitialize((params: InitializeParams): InitializeResult => {
+    workspaceFolders = (params.workspaceFolders || [])
+        .map((folder) => folder.uri.replace('file://', ''));
+    if (workspaceFolders.length === 0 && params.rootUri) {
+        workspaceFolders = [params.rootUri.replace('file://', '')];
+    }
+
     return {
         capabilities: {
             textDocumentSync: TextDocumentSyncKind.Incremental,
@@ -298,9 +311,14 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
                 resolveProvider: true,
                 triggerCharacters: ['{', '<', '"', "'", '=', '.', ' ', ':', '(', '@']
             },
-            hoverProvider: true
+            hoverProvider: true,
+            codeActionProvider: true
         }
     };
+});
+
+connection.onInitialized(() => {
+    connection.client.register(DidChangeConfigurationNotification.type);
 });
 
 connection.onCompletion((params: TextDocumentPositionParams): CompletionItem[] => {
@@ -549,17 +567,17 @@ connection.onCompletion((params: TextDocumentPositionParams): CompletionItem[] =
             }
         }
 
-        // @event completions
-        if (ctx.afterAt || ctx.currentWord.startsWith('@')) {
+        // on:event completions
+        if (!ctx.currentWord || ctx.currentWord.startsWith('on:') || ctx.currentWord === 'on') {
             for (const event of DOM_EVENTS) {
                 completions.push({
-                    label: `@${event}`,
+                    label: `on:${event}`,
                     kind: CompletionItemKind.Event,
                     detail: 'event binding',
                     documentation: `Bind to ${event} event`,
-                    insertText: `@${event}={$1}`,
+                    insertText: `on:${event}={$1}`,
                     insertTextFormat: InsertTextFormat.Snippet,
-                    sortText: `1_@${event}`
+                    sortText: `1_on:${event}`
                 });
             }
         }
@@ -613,22 +631,6 @@ connection.onCompletion((params: TextDocumentPositionParams): CompletionItem[] =
             }
         }
 
-        // Standard event handlers (onclick, onchange, etc.)
-        for (const event of DOM_EVENTS) {
-            const onEvent = `on${event}`;
-            if (!ctx.currentWord || onEvent.startsWith(ctx.currentWord.toLowerCase())) {
-                completions.push({
-                    label: onEvent,
-                    kind: CompletionItemKind.Event,
-                    detail: 'event handler',
-                    documentation: `Bind to ${event} event`,
-                    insertText: `${onEvent}={$1}`,
-                    insertTextFormat: InsertTextFormat.Snippet,
-                    sortText: `2_${onEvent}`
-                });
-            }
-        }
-
         // HTML attributes
         for (const attr of HTML_ATTRIBUTES) {
             if (!ctx.currentWord || attr.startsWith(ctx.currentWord.toLowerCase())) {
@@ -647,7 +649,7 @@ connection.onCompletion((params: TextDocumentPositionParams): CompletionItem[] =
     // === INSIDE ATTRIBUTE VALUE ===
     if (ctx.inAttributeValue) {
         // Event handler: offer functions
-        const eventMatch = lineBefore.match(/(?:on\w+|@\w+)=["'{][^"'{}]*$/);
+        const eventMatch = lineBefore.match(/on:[a-zA-Z][a-zA-Z0-9_-]*=["'{][^"'{}]*$/);
         if (eventMatch) {
             for (const func of functions) {
                 completions.push({
@@ -665,6 +667,15 @@ connection.onCompletion((params: TextDocumentPositionParams): CompletionItem[] =
 
 connection.onCompletionResolve((item: CompletionItem): CompletionItem => {
     return item;
+});
+
+connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
+    const document = documents.get(params.textDocument.uri);
+    if (!document) {
+        return [];
+    }
+
+    return buildEventBindingCodeActions(document, params.context.diagnostics);
 });
 
 connection.onHover((params: TextDocumentPositionParams): Hover | null => {
@@ -822,9 +833,20 @@ documents.onDidOpen(event => {
 
 async function validateDocument(document: TextDocument) {
     const graph = getProjectGraph(document.uri);
-    const diagnostics = await collectDiagnostics(document, graph);
+    const filePath = document.uri.replace('file://', '');
+    const projectRoot = detectProjectRoot(path.dirname(filePath), workspaceFolders);
+    const diagnostics = await collectDiagnostics(document, graph, globalSettings, projectRoot);
     connection.sendDiagnostics({ uri: document.uri, diagnostics });
 }
+
+connection.onDidChangeConfiguration((change) => {
+    const config = (change.settings?.zenith ?? change.settings) as unknown;
+    globalSettings = normalizeSettings(config);
+
+    for (const doc of documents.all()) {
+        validateDocument(doc);
+    }
+});
 
 // Watch for file changes
 connection.onDidChangeWatchedFiles(params => {

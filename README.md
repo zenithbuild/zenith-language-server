@@ -12,6 +12,20 @@ This package provides the "brains" for Zenith editor support. It implements the 
 - **Completion**: Context-aware suggestions for Zenith-specific syntax and standard HTML.
 - **Hover Information**: Detailed documentation on hover for core components and hooks.
 - **Document Symbols**: Outline and navigation support for complex components.
+- **Contract Enforcement**:
+  - `on:click={handler}` event syntax diagnostics + quick fixes for `onclick` / `@click`.
+  - Component script policy (`zenith.componentScripts`: `forbid` | `allow`).
+  - CSS import contract diagnostics for local precompiled CSS only.
+- **Project Root Resolution**:
+  - nearest `zenith.config.*`
+  - nearest `package.json` with `@zenithbuild/cli`
+  - workspace-aware fallback heuristics
+
+## Settings
+
+- `zenith.componentScripts`
+  - `forbid` (default): components may not contain `<script>`.
+  - `allow`: disables the component-script contract diagnostic.
 
 ## Architecture
 

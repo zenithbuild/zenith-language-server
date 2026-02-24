@@ -22,40 +22,156 @@ export interface ProjectGraph {
     pages: Map<string, ComponentInfo>;
 }
 
-/**
- * Detect Zenith project root
- * Looks for zenith.config.ts, src/, or app/
- */
-export function detectProjectRoot(startPath: string): string | null {
-    let current = startPath;
+const ZENITH_CONFIG_CANDIDATES = [
+    'zenith.config.ts',
+    'zenith.config.js',
+    'zenith.config.mjs',
+    'zenith.config.cjs',
+    'zenith.config.json'
+];
+
+function hasZenithConfig(dir: string): boolean {
+    return ZENITH_CONFIG_CANDIDATES.some((fileName) => fs.existsSync(path.join(dir, fileName)));
+}
+
+function hasZenithCliDependency(dir: string): boolean {
+    const packageJsonPath = path.join(dir, 'package.json');
+    if (!fs.existsSync(packageJsonPath)) {
+        return false;
+    }
+
+    try {
+        const raw = fs.readFileSync(packageJsonPath, 'utf-8');
+        const pkg = JSON.parse(raw) as {
+            dependencies?: Record<string, string>;
+            devDependencies?: Record<string, string>;
+            peerDependencies?: Record<string, string>;
+            optionalDependencies?: Record<string, string>;
+        };
+
+        const deps = [
+            pkg.dependencies || {},
+            pkg.devDependencies || {},
+            pkg.peerDependencies || {},
+            pkg.optionalDependencies || {}
+        ];
+
+        return deps.some((group) => Object.prototype.hasOwnProperty.call(group, '@zenithbuild/cli'));
+    } catch {
+        return false;
+    }
+}
+
+function hasZenithStructure(dir: string): boolean {
+    const srcDir = path.join(dir, 'src');
+    if (fs.existsSync(srcDir)) {
+        const hasPages = fs.existsSync(path.join(srcDir, 'pages'));
+        const hasLayouts = fs.existsSync(path.join(srcDir, 'layouts'));
+        if (hasPages || hasLayouts) {
+            return true;
+        }
+    }
+
+    const appDir = path.join(dir, 'app');
+    if (fs.existsSync(appDir)) {
+        const hasPages = fs.existsSync(path.join(appDir, 'pages'));
+        const hasLayouts = fs.existsSync(path.join(appDir, 'layouts'));
+        if (hasPages || hasLayouts) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function findNearestByRule(startPath: string, predicate: (dir: string) => boolean): string | null {
+    let current = path.resolve(startPath);
+    if (!fs.existsSync(current)) {
+        current = path.dirname(current);
+    }
+
+    while (!fs.existsSync(current) && current !== path.dirname(current)) {
+        current = path.dirname(current);
+    }
+
+    if (!fs.existsSync(current)) {
+        return null;
+    }
+
+    if (!fs.statSync(current).isDirectory()) {
+        current = path.dirname(current);
+    }
 
     while (current !== path.dirname(current)) {
-        // Check for zenith.config.ts
-        if (fs.existsSync(path.join(current, 'zenith.config.ts'))) {
+        if (predicate(current)) {
             return current;
-        }
-        // Check for src/ directory with Zenith files
-        const srcDir = path.join(current, 'src');
-        if (fs.existsSync(srcDir)) {
-            const hasPages = fs.existsSync(path.join(srcDir, 'pages'));
-            const hasLayouts = fs.existsSync(path.join(srcDir, 'layouts'));
-            if (hasPages || hasLayouts) {
-                return current;
-            }
-        }
-        // Check for app/ directory
-        const appDir = path.join(current, 'app');
-        if (fs.existsSync(appDir)) {
-            const hasPages = fs.existsSync(path.join(appDir, 'pages'));
-            const hasLayouts = fs.existsSync(path.join(appDir, 'layouts'));
-            if (hasPages || hasLayouts) {
-                return current;
-            }
         }
         current = path.dirname(current);
     }
 
+    if (predicate(current)) {
+        return current;
+    }
+
     return null;
+}
+
+function findFallbackRoot(startPath: string): string | null {
+    return findNearestByRule(startPath, (dir) => {
+        if (fs.existsSync(path.join(dir, 'package.json'))) {
+            return true;
+        }
+        if (hasZenithStructure(dir)) {
+            return true;
+        }
+        return false;
+    });
+}
+
+/**
+ * Detect Zenith project root
+ * Priority:
+ * 1) nearest zenith.config.*
+ * 2) nearest package.json with @zenithbuild/cli
+ * 3) nearest Zenith structure (src/pages|layouts or app/pages|layouts)
+ * 4) workspace folder fallbacks (if provided)
+ * 5) nearest package.json or Zenith structure
+ */
+export function detectProjectRoot(startPath: string, workspaceFolders: string[] = []): string | null {
+    const localConfigRoot = findNearestByRule(startPath, hasZenithConfig);
+    if (localConfigRoot) {
+        return localConfigRoot;
+    }
+
+    const localCliRoot = findNearestByRule(startPath, hasZenithCliDependency);
+    if (localCliRoot) {
+        return localCliRoot;
+    }
+
+    const localStructureRoot = findNearestByRule(startPath, hasZenithStructure);
+    if (localStructureRoot) {
+        return localStructureRoot;
+    }
+
+    const absoluteStart = path.resolve(startPath);
+    const matchingWorkspaceFolders = workspaceFolders
+        .map((workspacePath) => path.resolve(workspacePath))
+        .filter((workspacePath) => absoluteStart === workspacePath || absoluteStart.startsWith(`${workspacePath}${path.sep}`))
+        .sort((a, b) => b.length - a.length);
+
+    for (const workspaceRoot of matchingWorkspaceFolders) {
+        if (hasZenithConfig(workspaceRoot)) {
+            return workspaceRoot;
+        }
+        if (hasZenithCliDependency(workspaceRoot)) {
+            return workspaceRoot;
+        }
+        if (hasZenithStructure(workspaceRoot)) {
+            return workspaceRoot;
+        }
+    }
+
+    return findFallbackRoot(startPath);
 }
 
 /**

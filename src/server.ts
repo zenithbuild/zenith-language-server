@@ -66,7 +66,7 @@ import {
 } from './router';
 
 import { collectDiagnostics } from './diagnostics';
-import { buildEventBindingCodeActions } from './code-actions';
+import { buildEventBindingCodeActions, buildDomLintCodeActions, buildWindowDocumentCodeActions } from './code-actions';
 import { DEFAULT_SETTINGS, normalizeSettings, ZenithServerSettings } from './settings';
 
 // Create connection and document manager
@@ -78,14 +78,25 @@ let projectGraphs: Map<string, ProjectGraph> = new Map();
 let workspaceFolders: string[] = [];
 let globalSettings: ZenithServerSettings = DEFAULT_SETTINGS;
 
-// Lifecycle hooks with documentation
+// Lifecycle hooks and platform primitives with documentation
 const LIFECYCLE_HOOKS = [
     { name: 'state', doc: 'Declare a reactive state variable', snippet: 'state ${1:name} = ${2:value}', kind: CompletionItemKind.Keyword },
+    { name: 'zenMount', doc: 'Mount callback with ctx.cleanup for disposers', snippet: 'zenMount((ctx) => {\n\t$0\n})', kind: CompletionItemKind.Function },
     { name: 'zenOnMount', doc: 'Called when component is mounted to the DOM', snippet: 'zenOnMount(() => {\n\t$0\n})', kind: CompletionItemKind.Function },
     { name: 'zenOnDestroy', doc: 'Called when component is removed from the DOM', snippet: 'zenOnDestroy(() => {\n\t$0\n})', kind: CompletionItemKind.Function },
     { name: 'zenOnUpdate', doc: 'Called after any state update causes a re-render', snippet: 'zenOnUpdate(() => {\n\t$0\n})', kind: CompletionItemKind.Function },
     { name: 'zenEffect', doc: 'Reactive effect that re-runs when dependencies change', snippet: 'zenEffect(() => {\n\t$0\n})', kind: CompletionItemKind.Function },
     { name: 'useFetch', doc: 'Fetch data with caching and SSG support', snippet: 'useFetch("${1:url}")', kind: CompletionItemKind.Function }
+];
+
+const PLATFORM_PRIMITIVES = [
+    { name: 'zenWindow', doc: 'SSR-safe window access (returns null when not in browser)', snippet: 'zenWindow()', kind: CompletionItemKind.Function },
+    { name: 'zenDocument', doc: 'SSR-safe document access (returns null when not in browser)', snippet: 'zenDocument()', kind: CompletionItemKind.Function },
+    { name: 'zenOn', doc: 'Event subscription with disposer; register via ctx.cleanup', snippet: 'zenOn(${1:target}, \'${2:event}\', ${3:handler})', kind: CompletionItemKind.Function },
+    { name: 'zenResize', doc: 'Window resize handler; returns disposer for ctx.cleanup', snippet: 'zenResize(({ w, h }) => {\n\t$0\n})', kind: CompletionItemKind.Function },
+    { name: 'collectRefs', doc: 'Collect multiple refs into a deterministic node list', snippet: 'collectRefs(${1:refA}, ${2:refB})', kind: CompletionItemKind.Function },
+    { name: 'signal', doc: 'Create a signal for explicit get/set', snippet: 'signal(${1:0})', kind: CompletionItemKind.Function },
+    { name: 'ref', doc: 'Create a ref for DOM node or value', snippet: 'ref<${1:HTMLElement}>()', kind: CompletionItemKind.Function }
 ];
 
 // Common HTML elements
@@ -358,6 +369,44 @@ connection.onCompletion((params: TextDocumentPositionParams): CompletionItem[] =
                     preselect: hook.name === 'state' && ctx.currentWord.startsWith('s')
                 });
             }
+        }
+
+        // Platform primitives (zenWindow, zenDocument, zenOn, zenResize, collectRefs, signal, ref)
+        for (const prim of PLATFORM_PRIMITIVES) {
+            if (!ctx.currentWord || prim.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
+                completions.push({
+                    label: prim.name,
+                    kind: prim.kind,
+                    detail: 'Zenith Platform',
+                    documentation: { kind: MarkupKind.Markdown, value: prim.doc },
+                    insertText: prim.snippet,
+                    insertTextFormat: InsertTextFormat.Snippet,
+                    sortText: `0_${prim.name}`
+                });
+            }
+        }
+
+        // Soft suggestions: window -> zenWindow, document -> zenDocument (do not block normal JS)
+        const lc = ctx.currentWord.toLowerCase();
+        if (lc === 'window' || lc.startsWith('wind')) {
+            completions.push({
+                label: 'zenWindow',
+                kind: CompletionItemKind.Function,
+                detail: 'Zenith (SSR-safe)',
+                documentation: { kind: MarkupKind.Markdown, value: 'Use zenWindow() instead of window for SSR-safe access.' },
+                insertText: 'zenWindow()',
+                sortText: '0_zenWindow'
+            });
+        }
+        if (lc === 'document' || lc.startsWith('doc')) {
+            completions.push({
+                label: 'zenDocument',
+                kind: CompletionItemKind.Function,
+                detail: 'Zenith (SSR-safe)',
+                documentation: { kind: MarkupKind.Markdown, value: 'Use zenDocument() instead of document for SSR-safe access.' },
+                insertText: 'zenDocument()',
+                sortText: '0_zenDocument'
+            });
         }
 
         // Router hooks when router is imported
@@ -674,8 +723,10 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
     if (!document) {
         return [];
     }
-
-    return buildEventBindingCodeActions(document, params.context.diagnostics);
+    const eventActions = buildEventBindingCodeActions(document, params.context.diagnostics);
+    const domLintActions = buildDomLintCodeActions(document, params.context.diagnostics);
+    const windowDocActions = buildWindowDocumentCodeActions(document, params.range);
+    return [...eventActions, ...domLintActions, ...windowDocActions];
 });
 
 connection.onHover((params: TextDocumentPositionParams): Hover | null => {
@@ -822,9 +873,26 @@ connection.onHover((params: TextDocumentPositionParams): Hover | null => {
     return null;
 });
 
-// Validate documents and provide diagnostics
+// Debounce + cancellation for diagnostics (prevents editor lag from rapid typing)
+const DEBOUNCE_MS = 150;
+const validationTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+const validationIds = new Map<string, number>();
+
 documents.onDidChangeContent(change => {
-    validateDocument(change.document);
+    const uri = change.document.uri;
+    const existing = validationTimeouts.get(uri);
+    if (existing) clearTimeout(existing);
+    validationTimeouts.set(
+        uri,
+        setTimeout(() => {
+            validationTimeouts.delete(uri);
+            validateDocument(change.document);
+        }, DEBOUNCE_MS)
+    );
+});
+
+documents.onDidSave(event => {
+    validateDocument(event.document);
 });
 
 documents.onDidOpen(event => {
@@ -832,11 +900,17 @@ documents.onDidOpen(event => {
 });
 
 async function validateDocument(document: TextDocument) {
-    const graph = getProjectGraph(document.uri);
-    const filePath = document.uri.replace('file://', '');
+    const uri = document.uri;
+    const id = (validationIds.get(uri) ?? 0) + 1;
+    validationIds.set(uri, id);
+
+    const graph = getProjectGraph(uri);
+    const filePath = uri.replace('file://', '');
     const projectRoot = detectProjectRoot(path.dirname(filePath), workspaceFolders);
     const diagnostics = await collectDiagnostics(document, graph, globalSettings, projectRoot);
-    connection.sendDiagnostics({ uri: document.uri, diagnostics });
+
+    if (validationIds.get(uri) !== id) return;
+    connection.sendDiagnostics({ uri, diagnostics });
 }
 
 connection.onDidChangeConfiguration((change) => {

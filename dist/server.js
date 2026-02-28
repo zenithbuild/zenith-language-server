@@ -722,6 +722,9 @@ function classifyZenithFile(filePath) {
 
 // src/code-actions.ts
 var EVENT_BINDING_DIAGNOSTIC_CODE = "zenith.event.binding.syntax";
+var ZEN_DOM_QUERY = "ZEN-DOM-QUERY";
+var ZEN_DOM_LISTENER = "ZEN-DOM-LISTENER";
+var ZEN_DOM_WRAPPER = "ZEN-DOM-WRAPPER";
 function buildEventBindingCodeActions(document, diagnostics) {
   const actions = [];
   for (const diagnostic of diagnostics) {
@@ -748,6 +751,141 @@ function buildEventBindingCodeActions(document, diagnostics) {
     });
   }
   return actions;
+}
+function buildDomLintCodeActions(document, diagnostics) {
+  const actions = [];
+  const text = document.getText();
+  for (const diagnostic of diagnostics) {
+    const code = diagnostic.code;
+    if (code !== ZEN_DOM_QUERY && code !== ZEN_DOM_LISTENER && code !== ZEN_DOM_WRAPPER) {
+      continue;
+    }
+    const startOffset = document.offsetAt(diagnostic.range.start);
+    const endOffset = document.offsetAt(diagnostic.range.end);
+    const lineStart = text.lastIndexOf("\n", startOffset) + 1;
+    const lineEnd = text.indexOf("\n", endOffset);
+    const lineEndOffset = lineEnd === -1 ? text.length : lineEnd;
+    const lineContent = text.substring(lineStart, lineEndOffset);
+    if (code === ZEN_DOM_QUERY) {
+      const insertPos = { line: diagnostic.range.start.line, character: 0 };
+      actions.push({
+        title: "Suppress with // zen-allow:dom-query <reason>",
+        kind: "quickfix",
+        diagnostics: [diagnostic],
+        edit: {
+          changes: {
+            [document.uri]: [{
+              range: { start: insertPos, end: insertPos },
+              newText: "// zen-allow:dom-query <reason>\n"
+            }]
+          }
+        }
+      });
+      actions.push({
+        title: "Convert to ref() (partial / TODO)",
+        kind: "quickfix",
+        diagnostics: [diagnostic],
+        edit: {
+          changes: {
+            [document.uri]: [{
+              range: { start: insertPos, end: insertPos },
+              newText: "// TODO: use ref<T>() + zenMount instead\nconst elRef = ref<HTMLElement>();\n"
+            }]
+          }
+        }
+      });
+    } else if (code === ZEN_DOM_LISTENER) {
+      const insertPos = { line: diagnostic.range.start.line, character: 0 };
+      const lineRange = {
+        start: document.positionAt(lineStart),
+        end: document.positionAt(lineEndOffset)
+      };
+      const commentedLine = lineContent.replace(/^(\s*)/, "$1// ");
+      actions.push({
+        title: "Replace with zenOn template",
+        kind: "quickfix",
+        diagnostics: [diagnostic],
+        edit: {
+          changes: {
+            [document.uri]: [
+              {
+                range: { start: insertPos, end: insertPos },
+                newText: "// zenOn(target, eventName, handler) - register disposer via ctx.cleanup\n// const off = zenOn(doc, 'keydown', handler); ctx.cleanup(off);\n"
+              },
+              {
+                range: lineRange,
+                newText: commentedLine
+              }
+            ]
+          }
+        }
+      });
+    } else if (code === ZEN_DOM_WRAPPER) {
+      let newText = lineContent;
+      if (lineContent.includes("window") && !lineContent.includes("zenWindow")) {
+        newText = newText.replace(/\bwindow\b/g, "zenWindow()");
+      }
+      if (lineContent.includes("document") && !lineContent.includes("zenDocument")) {
+        newText = newText.replace(/\bdocument\b/g, "zenDocument()");
+      }
+      if (lineContent.includes("globalThis.window")) {
+        newText = newText.replace(/globalThis\.window/g, "zenWindow()");
+      }
+      if (lineContent.includes("globalThis.document")) {
+        newText = newText.replace(/globalThis\.document/g, "zenDocument()");
+      }
+      if (newText !== lineContent) {
+        actions.push({
+          title: "Replace with zenWindow() / zenDocument()",
+          kind: "quickfix",
+          diagnostics: [diagnostic],
+          edit: {
+            changes: {
+              [document.uri]: [{
+                range: {
+                  start: document.positionAt(lineStart),
+                  end: document.positionAt(lineEndOffset)
+                },
+                newText
+              }]
+            }
+          }
+        });
+      }
+    }
+  }
+  return actions;
+}
+function buildWindowDocumentCodeActions(document, range) {
+  const text = document.getText();
+  const startOffset = document.offsetAt(range.start);
+  const endOffset = document.offsetAt(range.end);
+  const selected = text.substring(startOffset, endOffset);
+  if (selected === "window") {
+    return [{
+      title: "Replace with zenWindow()",
+      kind: "refactor",
+      diagnostics: [],
+      edit: {
+        changes: {
+          [document.uri]: [{ range, newText: "zenWindow()" }]
+        }
+      }
+    }];
+  }
+  if (selected === "document") {
+    return [{
+      title: "Replace with zenDocument()",
+      kind: "refactor",
+      diagnostics: [],
+      edit: {
+        changes: {
+          [document.uri]: [{ range, newText: "zenDocument()" }]
+        }
+      }
+    }];
+  }
+  return [];
 }
 
 // src/diagnostics.ts
@@ -818,7 +956,26 @@ async function collectDiagnostics(document, graph, settings, projectRoot) {
   try {
     process.env.ZENITH_CACHE = "1";
     const { compile } = await import("@zenithbuild/compiler");
-    await compile(text, filePath);
+    const result = await compile(text, filePath);
+    const warnings = result.warnings ?? [];
+    const domLintSeverity = settings.strictDomLints ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning;
+    for (const w of warnings) {
+      const range = w.range;
+      const startLine = (range?.start?.line ?? 1) - 1;
+      const startChar = (range?.start?.column ?? 1) - 1;
+      const endLine = (range?.end?.line ?? range?.start?.line ?? 1) - 1;
+      const endChar = range?.end?.column ?? range?.start?.column ?? 1;
+      diagnostics.push({
+        severity: domLintSeverity,
+        range: {
+          start: { line: startLine, character: startChar },
+          end: { line: endLine, character: endChar }
+        },
+        message: w.message ?? "DOM lint",
+        source: "zenith-compiler",
+        code: w.code
+      });
+    }
   } catch (error) {
     const message = String(error?.message || "Unknown compiler error");
     const isContractViolation = message.includes(COMPONENT_SCRIPT_CONTRACT_MESSAGE);
@@ -1124,12 +1281,14 @@ function collectExpressionDiagnostics(document, text, diagnostics) {
 
 // src/settings.ts
 var DEFAULT_SETTINGS = Object.freeze({
-  componentScripts: "forbid"
+  componentScripts: "forbid",
+  strictDomLints: false
 });
 function normalizeSettings(input) {
   const maybe = input || {};
   const mode = maybe.componentScripts === "allow" ? "allow" : "forbid";
-  return { componentScripts: mode };
+  const strictDomLints = maybe.strictDomLints === true;
+  return { componentScripts: mode, strictDomLints };
 }
 
 // src/server.ts
@@ -1140,11 +1299,21 @@ var workspaceFolders = [];
 var globalSettings = DEFAULT_SETTINGS;
 var LIFECYCLE_HOOKS = [
   { name: "state", doc: "Declare a reactive state variable", snippet: "state ${1:name} = ${2:value}", kind: import_node.CompletionItemKind.Keyword },
+  { name: "zenMount", doc: "Mount callback with ctx.cleanup for disposers", snippet: "zenMount((ctx) => {\n	$0\n})", kind: import_node.CompletionItemKind.Function },
   { name: "zenOnMount", doc: "Called when component is mounted to the DOM", snippet: "zenOnMount(() => {\n	$0\n})", kind: import_node.CompletionItemKind.Function },
   { name: "zenOnDestroy", doc: "Called when component is removed from the DOM", snippet: "zenOnDestroy(() => {\n	$0\n})", kind: import_node.CompletionItemKind.Function },
   { name: "zenOnUpdate", doc: "Called after any state update causes a re-render", snippet: "zenOnUpdate(() => {\n	$0\n})", kind: import_node.CompletionItemKind.Function },
   { name: "zenEffect", doc: "Reactive effect that re-runs when dependencies change", snippet: "zenEffect(() => {\n	$0\n})", kind: import_node.CompletionItemKind.Function },
   { name: "useFetch", doc: "Fetch data with caching and SSG support", snippet: 'useFetch("${1:url}")', kind: import_node.CompletionItemKind.Function }
+];
+var PLATFORM_PRIMITIVES = [
+  { name: "zenWindow", doc: "SSR-safe window access (returns null when not in browser)", snippet: "zenWindow()", kind: import_node.CompletionItemKind.Function },
+  { name: "zenDocument", doc: "SSR-safe document access (returns null when not in browser)", snippet: "zenDocument()", kind: import_node.CompletionItemKind.Function },
+  { name: "zenOn", doc: "Event subscription with disposer; register via ctx.cleanup", snippet: "zenOn(${1:target}, '${2:event}', ${3:handler})", kind: import_node.CompletionItemKind.Function },
+  { name: "zenResize", doc: "Window resize handler; returns disposer for ctx.cleanup", snippet: "zenResize(({ w, h }) => {\n	$0\n})", kind: import_node.CompletionItemKind.Function },
+  { name: "collectRefs", doc: "Collect multiple refs into a deterministic node list", snippet: "collectRefs(${1:refA}, ${2:refB})", kind: import_node.CompletionItemKind.Function },
+  { name: "signal", doc: "Create a signal for explicit get/set", snippet: "signal(${1:0})", kind: import_node.CompletionItemKind.Function },
+  { name: "ref", doc: "Create a ref for DOM node or value", snippet: "ref<${1:HTMLElement}>()", kind: import_node.CompletionItemKind.Function }
 ];
 var HTML_ELEMENTS = [
   { tag: "div", doc: "Generic container element" },
@@ -1375,6 +1544,40 @@ connection.onCompletion((params) => {
           preselect: hook.name === "state" && ctx.currentWord.startsWith("s")
         });
       }
+    }
+    for (const prim of PLATFORM_PRIMITIVES) {
+      if (!ctx.currentWord || prim.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
+        completions.push({
+          label: prim.name,
+          kind: prim.kind,
+          detail: "Zenith Platform",
+          documentation: { kind: import_node.MarkupKind.Markdown, value: prim.doc },
+          insertText: prim.snippet,
+          insertTextFormat: import_node.InsertTextFormat.Snippet,
+          sortText: `0_${prim.name}`
+        });
+      }
+    }
+    const lc = ctx.currentWord.toLowerCase();
+    if (lc === "window" || lc.startsWith("wind")) {
+      completions.push({
+        label: "zenWindow",
+        kind: import_node.CompletionItemKind.Function,
+        detail: "Zenith (SSR-safe)",
+        documentation: { kind: import_node.MarkupKind.Markdown, value: "Use zenWindow() instead of window for SSR-safe access." },
+        insertText: "zenWindow()",
+        sortText: "0_zenWindow"
+      });
+    }
+    if (lc === "document" || lc.startsWith("doc")) {
+      completions.push({
+        label: "zenDocument",
+        kind: import_node.CompletionItemKind.Function,
+        detail: "Zenith (SSR-safe)",
+        documentation: { kind: import_node.MarkupKind.Markdown, value: "Use zenDocument() instead of document for SSR-safe access." },
+        insertText: "zenDocument()",
+        sortText: "0_zenDocument"
+      });
     }
     if (routerEnabled) {
       for (const hook of Object.values(ROUTER_HOOKS)) {
@@ -1648,7 +1851,10 @@ connection.onCodeAction((params) => {
   if (!document) {
     return [];
   }
-  return buildEventBindingCodeActions(document, params.context.diagnostics);
+  const eventActions = buildEventBindingCodeActions(document, params.context.diagnostics);
+  const domLintActions = buildDomLintCodeActions(document, params.context.diagnostics);
+  const windowDocActions = buildWindowDocumentCodeActions(document, params.range);
+  return [...eventActions, ...domLintActions, ...windowDocActions];
 });
 connection.onHover((params) => {
   const document = documents.get(params.textDocument.uri);
@@ -1823,18 +2029,37 @@ ${htmlEl.doc}`
   }
   return null;
 });
+var DEBOUNCE_MS = 150;
+var validationTimeouts = /* @__PURE__ */ new Map();
+var validationIds = /* @__PURE__ */ new Map();
 documents.onDidChangeContent((change) => {
-  validateDocument(change.document);
+  const uri = change.document.uri;
+  const existing = validationTimeouts.get(uri);
+  if (existing) clearTimeout(existing);
+  validationTimeouts.set(
+    uri,
+    setTimeout(() => {
+      validationTimeouts.delete(uri);
+      validateDocument(change.document);
+    }, DEBOUNCE_MS)
+  );
+});
+documents.onDidSave((event) => {
+  validateDocument(event.document);
 });
 documents.onDidOpen((event) => {
   validateDocument(event.document);
 });
 async function validateDocument(document) {
-  const graph = getProjectGraph(document.uri);
-  const filePath = document.uri.replace("file://", "");
+  const uri = document.uri;
+  const id = (validationIds.get(uri) ?? 0) + 1;
+  validationIds.set(uri, id);
+  const graph = getProjectGraph(uri);
+  const filePath = uri.replace("file://", "");
   const projectRoot = detectProjectRoot(path4.dirname(filePath), workspaceFolders);
   const diagnostics = await collectDiagnostics(document, graph, globalSettings, projectRoot);
-  connection.sendDiagnostics({ uri: document.uri, diagnostics });
+  if (validationIds.get(uri) !== id) return;
+  connection.sendDiagnostics({ uri, diagnostics });
 }
 connection.onDidChangeConfiguration((change) => {
   const config = change.settings?.zenith ?? change.settings;

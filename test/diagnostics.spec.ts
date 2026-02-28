@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { collectContractDiagnostics, CONTRACT_MESSAGES } from '../src/diagnostics';
+import { collectDiagnostics, collectContractDiagnostics, CONTRACT_MESSAGES } from '../src/diagnostics';
 import { buildEventBindingCodeActions } from '../src/code-actions';
-import { DEFAULT_SETTINGS } from '../src/settings';
+import { DEFAULT_SETTINGS, normalizeSettings } from '../src/settings';
 
 const PROJECT_ROOT = '/tmp/zenith-site';
 
@@ -98,4 +98,23 @@ test('css import contract allows local precompiled css with suffixes', () => {
     const messages = diagnostics.map((item) => item.message);
     assert.ok(!messages.includes(CONTRACT_MESSAGES.cssBareImport));
     assert.ok(!messages.includes(CONTRACT_MESSAGES.cssEscape));
+});
+
+test('ZEN-DOM-QUERY diagnostic appears for querySelector and severity maps with strictDomLints', async () => {
+    const document = doc(
+        'file:///tmp/zenith-site/src/pages/index.zen',
+        '<script lang="ts">\nconst el = document.querySelector(".foo");\n</script>\n<div class="foo">hi</div>'
+    );
+
+    const settingsDefault = normalizeSettings({ strictDomLints: false });
+    const diagnosticsDefault = await collectDiagnostics(document, null, settingsDefault, PROJECT_ROOT);
+    const queryDefault = diagnosticsDefault.filter((d) => d.code === 'ZEN-DOM-QUERY');
+    assert.ok(queryDefault.length >= 1, `expected ZEN-DOM-QUERY diagnostic, got: ${JSON.stringify(diagnosticsDefault.map((d) => d.code))}`);
+    assert.equal(queryDefault[0]?.severity, 2, 'ZEN-DOM-QUERY should be Warning (2) when strictDomLints=false');
+
+    const settingsStrict = normalizeSettings({ strictDomLints: true });
+    const diagnosticsStrict = await collectDiagnostics(document, null, settingsStrict, PROJECT_ROOT);
+    const queryStrict = diagnosticsStrict.filter((d) => d.code === 'ZEN-DOM-QUERY');
+    assert.ok(queryStrict.length >= 1, `expected ZEN-DOM-QUERY diagnostic in strict mode, got: ${JSON.stringify(diagnosticsStrict.map((d) => d.code))}`);
+    assert.equal(queryStrict[0]?.severity, 1, 'ZEN-DOM-QUERY should be Error (1) when strictDomLints=true');
 });

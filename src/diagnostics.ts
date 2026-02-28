@@ -155,7 +155,33 @@ export async function collectDiagnostics(
     try {
         process.env.ZENITH_CACHE = '1';
         const { compile } = await import('@zenithbuild/compiler');
-        await compile(text, filePath);
+        const result = await compile(text, filePath);
+
+        // 2) Surface ZEN-DOM-* warnings from compiler JSON as LSP diagnostics.
+        interface CompilerWarning {
+            code?: string;
+            message?: string;
+            range?: { start?: { line?: number; column?: number }; end?: { line?: number; column?: number } };
+        }
+        const warnings: CompilerWarning[] = (result as { warnings?: CompilerWarning[] }).warnings ?? [];
+        const domLintSeverity = settings.strictDomLints ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning;
+        for (const w of warnings) {
+            const range = w.range;
+            const startLine = (range?.start?.line ?? 1) - 1;
+            const startChar = (range?.start?.column ?? 1) - 1;
+            const endLine = (range?.end?.line ?? range?.start?.line ?? 1) - 1;
+            const endChar = (range?.end?.column ?? range?.start?.column ?? 1);
+            diagnostics.push({
+                severity: domLintSeverity,
+                range: {
+                    start: { line: startLine, character: startChar },
+                    end: { line: endLine, character: endChar }
+                },
+                message: w.message ?? 'DOM lint',
+                source: 'zenith-compiler',
+                code: w.code
+            });
+        }
     } catch (error: any) {
         const message = String(error?.message || 'Unknown compiler error');
         const isContractViolation = message.includes(COMPONENT_SCRIPT_CONTRACT_MESSAGE);

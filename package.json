@@ -1,6 +1,6 @@
 {
   "name": "@zenithbuild/language-server",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Language Server for Zenith Framework",
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",
@@ -16,7 +16,7 @@
     "release:major": "bun run scripts/release.ts --bump=major"
   },
   "dependencies": {
-    "@zenithbuild/compiler": "^0.6.0",
+    "@zenithbuild/compiler": "^0.6.5",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.11"
   },

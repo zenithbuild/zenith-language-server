@@ -44,3 +44,8 @@ bun run dev
 ## License
 
 MIT
+
+
+## Support Zenith
+
+If this project is useful to you, consider sponsoring Zenith on GitHub: [Sponsor Zenith](https://github.com/sponsors/zenithbuild). Sponsorship helps fund ongoing work across the compiler, runtime, tooling, documentation, and long-term maintenance.

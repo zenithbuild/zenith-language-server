@@ -93,6 +93,12 @@ The Neovim smoke prints `SKIP: nvim not installed` when Neovim is unavailable
 and `SKIP: nvim >= 0.10 required` when the installed Neovim is too old for the
 tested LSP client API.
 
+For real-project verification, use the manual checklist in
+[docs/manual-neovim-verification.md](docs/manual-neovim-verification.md). The
+stdio transport test proves the LSP protocol path; the manual checklist verifies
+that a real Neovim buffer has the expected filetype, attached client,
+diagnostics, hover, and completion behavior.
+
 ## Architecture
 
 The server is built with `vscode-languageserver` and is designed to be decoupled from the VS Code extension, allowing it to be reused in other IDEs or environments.

@@ -4,9 +4,12 @@
   "description": "Language Server for Zenith Framework",
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",
+  "bin": {
+    "zenith-language-server": "bin/zenith-language-server.js"
+  },
   "scripts": {
     "build": "npx esbuild src/server.ts --bundle --outdir=dist --platform=node --format=cjs --external:@zenithbuild/compiler --external:vscode-languageserver/node --external:vscode-languageserver-textdocument",
-    "test": "npm run test:unit",
+    "test": "bun run build && bun run test:unit",
     "test:unit": "bun test test/*.spec.ts",
     "dev": "npm run build -- --watch",
     "release": "bun run scripts/release.ts",

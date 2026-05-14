@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.11] - 2026-05-14
+
+### Added
+
+- Public `zenith-language-server` bin entrypoint that defaults to stdio for plain LSP clients.
+- Stdio LSP smoke coverage for initialization, diagnostics, hover, and completion.
+- Headless Neovim smoke coverage with `nvim >= 0.10` gating.
+
+### Changed
+
+- Preserved explicit LSP transport arguments while defaulting no-arg launches to stdio.
+- Updated README with Neovim setup and current language-server limitations.
+
 ## [0.6.0] - 2026-02-28
 
 ### Added
@@ -56,4 +69,3 @@ ba3addf298e5752e0968e3a97f32ea99c35bfbaa ()
 - 
 58acde512541446d1008d0dbb154aee69410be87 ()
 -  ()
-

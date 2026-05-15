@@ -265,13 +265,16 @@ function getDirectiveNames() {
 }
 function canPlaceDirective(directiveName, elementType) {
   const directive = DIRECTIVES[directiveName];
-  if (!directive) return false;
-  if (elementType === "slot") return false;
+  if (!directive)
+    return false;
+  if (elementType === "slot")
+    return false;
   return directive.placement.includes(elementType);
 }
 function parseForExpression(expression) {
   const match = expression.match(/^\s*([a-zA-Z_$][\w$]*)(?:\s*,\s*([a-zA-Z_$][\w$]*))?\s+in\s+(.+)\s*$/);
-  if (!match) return null;
+  if (!match)
+    return null;
   return {
     itemVar: match[1],
     indexVar: match[2],
@@ -395,7 +398,8 @@ function getCoreModule(moduleName) {
 }
 function getCoreExport(moduleName, exportName) {
   const module2 = CORE_MODULES[moduleName];
-  if (!module2) return void 0;
+  if (!module2)
+    return void 0;
   return module2.exports.find((e) => e.name === exportName);
 }
 function isCoreModule(moduleName) {
@@ -460,7 +464,8 @@ function getPluginModule(moduleName) {
 }
 function getPluginExport(moduleName, exportName) {
   const module2 = PLUGIN_MODULES[moduleName];
-  if (!module2) return void 0;
+  if (!module2)
+    return void 0;
   return module2.exports.find((e) => e.name === exportName);
 }
 function isPluginModule(moduleName) {
@@ -489,7 +494,8 @@ function parseZenithImports(script) {
           const parts = namedImports.split(",");
           for (const part of parts) {
             const cleaned = part.trim().split(/\s+as\s+/)[0].trim();
-            if (cleaned) specifiers.push(cleaned);
+            if (cleaned)
+              specifiers.push(cleaned);
           }
         } else if (namespaceImport) {
           specifiers.push(namespaceImport.trim());
@@ -1130,7 +1136,8 @@ function collectCssImportContractDiagnostics(document, text, filePath, projectRo
   }
 }
 function collectComponentDiagnostics(document, text, graph, diagnostics) {
-  if (!graph) return;
+  if (!graph)
+    return;
   const strippedText = text.replace(/<(script|style)[^>]*>([\s\S]*?)<\/\1>/gi, (match2, _tag, content) => {
     return match2.replace(content, " ".repeat(content.length));
   });
@@ -1138,7 +1145,8 @@ function collectComponentDiagnostics(document, text, graph, diagnostics) {
   let match;
   while ((match = componentPattern.exec(strippedText)) !== null) {
     const componentName = match[1];
-    if (componentName === "ZenLink") continue;
+    if (componentName === "ZenLink")
+      continue;
     const inLayouts = graph.layouts.has(componentName);
     const inComponents = graph.components.has(componentName);
     if (!inLayouts && !inComponents) {
@@ -1197,7 +1205,8 @@ function collectDirectiveDiagnostics(document, text, diagnostics) {
 }
 function collectImportDiagnostics(document, text, diagnostics) {
   const scriptMatch = text.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
-  if (!scriptMatch) return;
+  if (!scriptMatch)
+    return;
   const scriptContent = scriptMatch[1];
   const scriptStart = (scriptMatch.index || 0) + scriptMatch[0].indexOf(scriptContent);
   const imports = parseZenithImports(scriptContent);
@@ -1436,7 +1445,8 @@ function extractLoopVariables(text) {
     const parsed = parseForExpression(match[1]);
     if (parsed) {
       vars.push(parsed.itemVar);
-      if (parsed.indexVar) vars.push(parsed.indexVar);
+      if (parsed.indexVar)
+        vars.push(parsed.indexVar);
     }
   }
   return vars;
@@ -1516,7 +1526,8 @@ connection.onInitialized(() => {
 });
 connection.onCompletion((params) => {
   const document = documents.get(params.textDocument.uri);
-  if (!document) return [];
+  if (!document)
+    return [];
   const text = document.getText();
   const offset = document.offsetAt(params.position);
   const ctx = getPositionContext(text, offset);
@@ -1858,7 +1869,8 @@ connection.onCodeAction((params) => {
 });
 connection.onHover((params) => {
   const document = documents.get(params.textDocument.uri);
-  if (!document) return null;
+  if (!document)
+    return null;
   const text = document.getText();
   const offset = document.offsetAt(params.position);
   const before = text.substring(0, offset);
@@ -1866,7 +1878,8 @@ connection.onHover((params) => {
   const wordBefore = before.match(/[a-zA-Z0-9_$:@-]*$/)?.[0] || "";
   const wordAfter = after.match(/^[a-zA-Z0-9_$:-]*/)?.[0] || "";
   const word = wordBefore + wordAfter;
-  if (!word) return null;
+  if (!word)
+    return null;
   if (isDirective(word)) {
     const directive = getDirective(word);
     if (directive) {
@@ -2035,7 +2048,8 @@ var validationIds = /* @__PURE__ */ new Map();
 documents.onDidChangeContent((change) => {
   const uri = change.document.uri;
   const existing = validationTimeouts.get(uri);
-  if (existing) clearTimeout(existing);
+  if (existing)
+    clearTimeout(existing);
   validationTimeouts.set(
     uri,
     setTimeout(() => {
@@ -2058,7 +2072,8 @@ async function validateDocument(document) {
   const filePath = uri.replace("file://", "");
   const projectRoot = detectProjectRoot(path4.dirname(filePath), workspaceFolders);
   const diagnostics = await collectDiagnostics(document, graph, globalSettings, projectRoot);
-  if (validationIds.get(uri) !== id) return;
+  if (validationIds.get(uri) !== id)
+    return;
   connection.sendDiagnostics({ uri, diagnostics });
 }
 connection.onDidChangeConfiguration((change) => {

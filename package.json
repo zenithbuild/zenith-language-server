@@ -1,9 +1,8 @@
 {
   "name": "@zenithbuild/language-server",
-  "version": "0.7.11",
+  "version": "0.7.12",
   "description": "Language Server for Zenith Framework",
   "main": "./dist/server.js",
-  "types": "./dist/server.d.ts",
   "bin": {
     "zenith-language-server": "bin/zenith-language-server.js"
   },
@@ -31,6 +30,11 @@
   "publishConfig": {
     "access": "public"
   },
+  "files": [
+    "bin/",
+    "dist/",
+    "docs/"
+  ],
   "private": false,
   "license": "MIT",
   "repository": {

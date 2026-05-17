@@ -330,6 +330,155 @@ test('script-context completions only teach canonical signal/state/ref API', asy
     }, ['--stdio']);
 });
 
+test('script-context completion exposes @zenithbuild/router navigation API and excludes legacy hooks', async () => {
+    await withClient(async (lsp) => {
+        await lsp.initialize();
+        const uri = 'file:///tmp/router-truth.zen';
+        const text = [
+            '<script lang="ts">',
+            'import { navigate } from "@zenithbuild/router";',
+            '',
+            '</script>',
+            '<p>hello</p>'
+        ].join('\n');
+
+        lsp.notify('textDocument/didOpen', openTextDocument(uri, text));
+
+        const completion = await lsp.request('textDocument/completion', {
+            textDocument: { uri },
+            position: { line: 2, character: 0 }
+        });
+
+        assert.ok(Array.isArray(completion) && completion.length > 0, 'expected completion items');
+        const labels = new Set(completion.map((item: any) => item.label));
+
+        for (const expected of ['navigate', 'createRouter', 'getCurrentPath', 'refreshCurrentRoute']) {
+            assert.ok(labels.has(expected), `router completion must include "${expected}"`);
+        }
+        for (const stale of ['useRoute', 'useRouter', 'prefetch', 'isActive', 'getRoute']) {
+            assert.ok(!labels.has(stale), `router completion must NOT include stale "${stale}"`);
+        }
+    }, ['--stdio']);
+});
+
+test('template-context completion offers ZenLink with canonical href prop when router is imported', async () => {
+    await withClient(async (lsp) => {
+        await lsp.initialize();
+        const uri = 'file:///tmp/router-template.zen';
+        const lines = [
+            '<script lang="ts">',
+            'import ZenLink from "@zenithbuild/router/ZenLink.zen";',
+            '</script>',
+            '<'
+        ];
+        const text = lines.join('\n');
+
+        lsp.notify('textDocument/didOpen', openTextDocument(uri, text));
+
+        // Cursor at the very end, right after the trailing `<`
+        const completion = await lsp.request('textDocument/completion', {
+            textDocument: { uri },
+            position: { line: lines.length - 1, character: 1 }
+        });
+
+        assert.ok(Array.isArray(completion) && completion.length > 0, 'expected completion items');
+        const zenLinkItem = completion.find((item: any) => item.label === 'ZenLink');
+        assert.ok(zenLinkItem, 'ZenLink completion must be offered when router is imported');
+        assert.match(
+            String(zenLinkItem.insertText ?? ''),
+            /href=/,
+            'ZenLink completion must teach `href` prop'
+        );
+        assert.doesNotMatch(
+            String(zenLinkItem.insertText ?? ''),
+            /\bto=/,
+            'ZenLink completion must not teach legacy `to` prop'
+        );
+    }, ['--stdio']);
+});
+
+test('inside-tag completion for ZenLink offers canonical Props and not React-style children', async () => {
+    await withClient(async (lsp) => {
+        await lsp.initialize();
+        const uri = 'file:///tmp/router-zenlink-props.zen';
+        const text = [
+            '<script lang="ts">',
+            'import ZenLink from "@zenithbuild/router/ZenLink.zen";',
+            '</script>',
+            '<ZenLink ></ZenLink>'
+        ].join('\n');
+
+        lsp.notify('textDocument/didOpen', openTextDocument(uri, text));
+
+        const completion = await lsp.request('textDocument/completion', {
+            textDocument: { uri },
+            position: positionOf(text, '<ZenLink ', 9)
+        });
+
+        assert.ok(Array.isArray(completion) && completion.length > 0, 'expected completion items');
+        const labels = new Set(completion.map((item: any) => item.label));
+        for (const expected of ['href', 'class', 'ariaLabel', 'onClick']) {
+            assert.ok(labels.has(expected), `ZenLink props must include "${expected}"`);
+        }
+        for (const stale of ['to', 'preload', 'replace', 'activeClass', 'children', 'className']) {
+            assert.ok(
+                !labels.has(stale),
+                `ZenLink props must NOT include stale "${stale}"`
+            );
+        }
+    }, ['--stdio']);
+});
+
+test('component-tag completion does not invent React-style children when Props absent', async () => {
+    await withClient(async (lsp) => {
+        await lsp.initialize();
+        const uri = 'file:///tmp/no-children.zen';
+        const text = [
+            '<script lang="ts">',
+            'const x = 1;',
+            '</script>',
+            '<button ></button>'
+        ].join('\n');
+
+        lsp.notify('textDocument/didOpen', openTextDocument(uri, text));
+
+        const completion = await lsp.request('textDocument/completion', {
+            textDocument: { uri },
+            position: positionOf(text, '<button ', 8)
+        });
+
+        assert.ok(Array.isArray(completion) && completion.length > 0, 'expected completion items');
+        const labels = new Set(completion.map((item: any) => item.label));
+        for (const stale of ['children', 'className']) {
+            assert.ok(
+                !labels.has(stale),
+                `tag attribute completion must not surface stale "${stale}"`
+            );
+        }
+    }, ['--stdio']);
+});
+
+test('import-path completion includes @zenithbuild/router but not legacy zenith/router', async () => {
+    await withClient(async (lsp) => {
+        await lsp.initialize();
+        const uri = 'file:///tmp/import-completion.zen';
+        const text = '<script lang="ts">\nimport { navigate } from ""\n</script>\n';
+
+        lsp.notify('textDocument/didOpen', openTextDocument(uri, text));
+
+        // Position cursor inside the empty import path quotes
+        const completion = await lsp.request('textDocument/completion', {
+            textDocument: { uri },
+            position: positionOf(text, 'from ""', 6)
+        });
+
+        assert.ok(Array.isArray(completion) && completion.length > 0, 'expected completion items');
+        const labels = new Set(completion.map((item: any) => item.label));
+        assert.ok(labels.has('@zenithbuild/router'), 'must offer canonical @zenithbuild/router');
+        assert.ok(!labels.has('zenith/router'), 'must not offer legacy zenith/router');
+    }, ['--stdio']);
+});
+
 test('script-context hover for `signal` returns canonical .get()/.set() API docs', async () => {
     await withClient(async (lsp) => {
         await lsp.initialize();

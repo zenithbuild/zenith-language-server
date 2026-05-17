@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.15] - 2026-05-17
+
+### Added
+
+- Canonical `@zenithbuild/router` module metadata in
+  `src/metadata/core-imports.ts` covering `createRouter`, `navigate`,
+  `refreshCurrentRoute`, `back`, `forward`, `getCurrentPath`,
+  `onRouteChange`, `on`, `off`, `setAdvisoryRoutePolicy`,
+  `zenNavigationShell`, and `matchRoute`. The router subpath
+  `@zenithbuild/router/ZenLink.zen` is also catalogued, with `ZenLink` props
+  audited against `framework/packages/router/src/ZenLink.zen` (`href`,
+  `class`, `target`, `rel`, `id`, `title`, `ariaLabel`, `ariaCurrent`,
+  `ariaDisabled`, `elementRef`, `onClick`, `onHoverIn`, `onHoverOut`,
+  `onFocus`, `onBlur`).
+- `hasZenLinkImport()` helper in `src/imports.ts` and `ROUTER_FUNCTIONS` /
+  `ZENLINK_PROPS` exports in `src/router.ts`. `src/imports.ts` now tracks
+  `@zenithbuild/router` and its subpaths in `parseZenithImports()` and
+  `getAllModules()`.
+- Truth gates in `test/api-truth.spec.ts` that block re-introduction of
+  React-style `children:` / `ReactNode` / `PropsWithChildren` / `className=`,
+  legacy router hooks (`useRoute`, `useRouter`, `prefetch`, `isActive`,
+  `getRoute`), the legacy `zenith/router` module id, and `<ZenLink to=...>`
+  props on any LSP completion/hover surface or metadata catalog.
+- End-to-end completion tests in `test/lsp-stdio.spec.ts` covering router
+  programmatic surface (`navigate`, `createRouter`, …), `<ZenLink>`
+  template completion with `href`, `<ZenLink>` attribute completion (no
+  `to` / `preload` / `children`), generic tag attribute completion (no
+  `children` / `className` injected when `Props` is absent), and import
+  path completion (`@zenithbuild/router` present, `zenith/router` absent).
+- Root `AGENTS.md` copied from the framework so future automation in this
+  repo follows the same per-file 500-line cap and canonical-API constraints.
+
+### Changed
+
+- Removed the React-style `children` / `className` braced-expression
+  heuristic in `src/project.ts`. Component prop inference now honors only
+  the file's `interface Props { … }` or `type Props = { … }` declaration.
+- Removed legacy `ROUTER_HOOKS`, `ROUTE_FIELDS`, and stale router functions
+  (`prefetch`, `isActive`, `go`) from `src/router.ts`. The replacement
+  `ROUTER_FUNCTIONS` catalog reflects the shipped `@zenithbuild/router`
+  surface only.
+- Refactored `src/server.ts` (1006 lines) downward into smaller modules to
+  honor the 500-line cap:
+  - `src/metadata/completion-metadata.ts` — `LIFECYCLE_HOOKS`,
+    `PLATFORM_PRIMITIVES`, `HTML_ELEMENTS`, `HTML_ATTRIBUTES`, `DOM_EVENTS`.
+  - `src/extractors.ts` — `getPositionContext`, `extractStates`,
+    `extractFunctions`, `extractLoopVariables`, `getScriptContent`.
+  - `src/completion.ts` — `provideCompletions(text, offset, graph)`.
+  - `src/hover.ts` — `provideHover(text, offset, graph)`.
+  - `src/server.ts` is now a thin LSP transport wiring layer.
+- `<slot>` HTML element completion documentation now describes compile-time
+  child injection and explicitly notes there is no `children` prop.
+- ZenLink hover/completion now reflects the canonical `href` prop set and
+  removes references to `to`, `preload`, `replace`, `activeClass`, and
+  `children`.
+
 ## [0.7.14] - 2026-05-17
 
 ### 🐛 Bug Fixes

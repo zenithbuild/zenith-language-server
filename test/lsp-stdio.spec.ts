@@ -286,3 +286,65 @@ test('serves existing completion and hover requests through LSP transport', asyn
         assert.match(hover.contents.value, /state `count`/);
     }, ['--stdio']);
 });
+
+test('script-context completions only teach canonical signal/state/ref API', async () => {
+    await withClient(async (lsp) => {
+        await lsp.initialize();
+        const uri = 'file:///tmp/api-truth.zen';
+        // Empty new line inside the script block so currentWord is "" and the
+        // LSP returns the full canonical primitive list (not just signal*).
+        const text = '<script lang="ts">\nconst count = signal(0);\n\n</script>\n<p>{count}</p>';
+
+        lsp.notify('textDocument/didOpen', openTextDocument(uri, text));
+
+        const completion = await lsp.request('textDocument/completion', {
+            textDocument: { uri },
+            position: { line: 2, character: 0 }
+        });
+
+        assert.ok(Array.isArray(completion) && completion.length > 0, 'expected completion items');
+
+        const labels = new Set(completion.map((item: any) => item.label));
+        const stale = ['zenOnMount', 'zenOnDestroy', 'zenOnUpdate', 'zenRef', 'zenState', 'useFetch'];
+        for (const name of stale) {
+            assert.ok(!labels.has(name), `LSP must not surface stale completion "${name}"`);
+        }
+
+        const signalItem = completion.find((item: any) => item.label === 'signal');
+        assert.ok(signalItem, 'signal completion must be present in script context');
+        assert.match(signalItem.insertText, /signal\(/, 'signal insertText must call signal()');
+        assert.match(signalItem.insertText, /\.set\(/, 'signal insertText must teach .set(...)');
+        assert.match(signalItem.insertText, /\.get\(\)/, 'signal insertText must teach .get()');
+        assert.doesNotMatch(signalItem.insertText, /\.value\b/, 'signal insertText must NOT teach .value');
+
+        const stateItem = completion.find((item: any) => item.label === 'state');
+        assert.ok(stateItem, 'state completion must be present in script context');
+        assert.match(stateItem.insertText, /^state \$\{1:name\}/, 'state insertText must be declarative');
+
+        for (const item of completion) {
+            const labelText = String(item.label ?? '');
+            const insertText = String(item.insertText ?? '');
+            assert.doesNotMatch(labelText, /\bcount\.value\b/, `completion label "${labelText}" must not teach .value`);
+            assert.doesNotMatch(insertText, /\bcount\.value\b/, `completion insertText for "${labelText}" must not teach count.value`);
+        }
+    }, ['--stdio']);
+});
+
+test('script-context hover for `signal` returns canonical .get()/.set() API docs', async () => {
+    await withClient(async (lsp) => {
+        await lsp.initialize();
+        const uri = 'file:///tmp/api-truth-hover.zen';
+        const text = '<script lang="ts">\nconst count = signal(0);\n</script>\n<p>{count}</p>';
+
+        lsp.notify('textDocument/didOpen', openTextDocument(uri, text));
+
+        const hover = await lsp.request('textDocument/hover', {
+            textDocument: { uri },
+            position: positionOf(text, 'signal(0)', 2)
+        });
+        const value = String(hover?.contents?.value ?? '');
+        assert.match(value, /signal/, 'hover should mention signal');
+        assert.match(value, /\.get\(\)/, 'hover should teach .get()');
+        assert.match(value, /\.set\(/, 'hover should teach .set()');
+    }, ['--stdio']);
+});

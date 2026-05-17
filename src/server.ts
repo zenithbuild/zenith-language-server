@@ -1,8 +1,10 @@
 /**
  * Zenith Language Server
- * 
- * Provides full IntelliSense for Zenith .zen files.
- * 
+ *
+ * Provides compiler-backed diagnostics, doc-backed completion items, and
+ * limited hover content for Zenith .zen files. Syntax highlighting is owned
+ * by `@zenithbuild/language`, not this package.
+ *
  * Architecture Principles:
  * - Compiler is the source of truth
  * - No runtime assumptions
@@ -78,25 +80,74 @@ let projectGraphs: Map<string, ProjectGraph> = new Map();
 let workspaceFolders: string[] = [];
 let globalSettings: ZenithServerSettings = DEFAULT_SETTINGS;
 
-// Lifecycle hooks and platform primitives with documentation
+// Canonical Zenith reactivity / lifecycle entries surfaced in completion.
+// Audited against framework runtime exports (packages/runtime/src/index.js).
+// Forbidden stale entries deliberately removed: zenOnMount, zenOnDestroy,
+// zenOnUpdate, zenRef, zenState (React-tuple form), useFetch.
 const LIFECYCLE_HOOKS = [
-    { name: 'state', doc: 'Declare a reactive state variable', snippet: 'state ${1:name} = ${2:value}', kind: CompletionItemKind.Keyword },
-    { name: 'zenMount', doc: 'Mount callback with ctx.cleanup for disposers', snippet: 'zenMount((ctx) => {\n\t$0\n})', kind: CompletionItemKind.Function },
-    { name: 'zenOnMount', doc: 'Called when component is mounted to the DOM', snippet: 'zenOnMount(() => {\n\t$0\n})', kind: CompletionItemKind.Function },
-    { name: 'zenOnDestroy', doc: 'Called when component is removed from the DOM', snippet: 'zenOnDestroy(() => {\n\t$0\n})', kind: CompletionItemKind.Function },
-    { name: 'zenOnUpdate', doc: 'Called after any state update causes a re-render', snippet: 'zenOnUpdate(() => {\n\t$0\n})', kind: CompletionItemKind.Function },
-    { name: 'zenEffect', doc: 'Reactive effect that re-runs when dependencies change', snippet: 'zenEffect(() => {\n\t$0\n})', kind: CompletionItemKind.Function },
-    { name: 'useFetch', doc: 'Fetch data with caching and SSG support', snippet: 'useFetch("${1:url}")', kind: CompletionItemKind.Function }
+    {
+        name: 'state',
+        doc: 'Declare a reactive local variable in a Zenith `.zen` script.\n\nReads use the plain identifier; writes use ordinary assignment (e.g. `count += 1`).',
+        snippet: 'state ${1:name} = ${2:initial}',
+        kind: CompletionItemKind.Keyword
+    },
+    {
+        name: 'zenMount',
+        doc: 'Run a callback once when the host element mounts.\n\nThe context exposes `cleanup(disposer)` for tearing down listeners and timers.',
+        snippet: 'zenMount((ctx) => {\n\t$0\n})',
+        kind: CompletionItemKind.Function
+    },
+    {
+        name: 'zenEffect',
+        doc: 'Reactive effect that re-runs when its tracked signal/state dependencies change.',
+        snippet: 'zenEffect((ctx) => {\n\t$0\n})',
+        kind: CompletionItemKind.Function
+    }
 ];
 
 const PLATFORM_PRIMITIVES = [
-    { name: 'zenWindow', doc: 'SSR-safe window access (returns null when not in browser)', snippet: 'zenWindow()', kind: CompletionItemKind.Function },
-    { name: 'zenDocument', doc: 'SSR-safe document access (returns null when not in browser)', snippet: 'zenDocument()', kind: CompletionItemKind.Function },
-    { name: 'zenOn', doc: 'Event subscription with disposer; register via ctx.cleanup', snippet: 'zenOn(${1:target}, \'${2:event}\', ${3:handler})', kind: CompletionItemKind.Function },
-    { name: 'zenResize', doc: 'Window resize handler; returns disposer for ctx.cleanup', snippet: 'zenResize(({ w, h }) => {\n\t$0\n})', kind: CompletionItemKind.Function },
-    { name: 'collectRefs', doc: 'Collect multiple refs into a deterministic node list', snippet: 'collectRefs(${1:refA}, ${2:refB})', kind: CompletionItemKind.Function },
-    { name: 'signal', doc: 'Create a signal for explicit get/set', snippet: 'signal(${1:0})', kind: CompletionItemKind.Function },
-    { name: 'ref', doc: 'Create a ref for DOM node or value', snippet: 'ref<${1:HTMLElement}>()', kind: CompletionItemKind.Function }
+    {
+        name: 'zenWindow',
+        doc: 'SSR-safe `window` access. Returns `null` outside the browser. Use instead of the global `window`.',
+        snippet: 'zenWindow()',
+        kind: CompletionItemKind.Function
+    },
+    {
+        name: 'zenDocument',
+        doc: 'SSR-safe `document` access. Returns `null` outside the browser. Use instead of the global `document`.',
+        snippet: 'zenDocument()',
+        kind: CompletionItemKind.Function
+    },
+    {
+        name: 'zenOn',
+        doc: 'Add an event listener returning a disposer suitable for `ctx.cleanup(...)`.\n\nForbidden alternative: calling `addEventListener` directly in `.zen` scripts.',
+        snippet: "zenOn(${1:target}, '${2:event}', ${3:handler})",
+        kind: CompletionItemKind.Function
+    },
+    {
+        name: 'zenResize',
+        doc: 'Subscribe to window resize updates. Returns a disposer suitable for `ctx.cleanup(...)`.',
+        snippet: 'zenResize(({ w, h }) => {\n\t$0\n})',
+        kind: CompletionItemKind.Function
+    },
+    {
+        name: 'collectRefs',
+        doc: 'Collect multiple refs into a deterministic array of attached elements. Use instead of `querySelectorAll` for multi-node operations.',
+        snippet: 'collectRefs(${1:refA}, ${2:refB})',
+        kind: CompletionItemKind.Function
+    },
+    {
+        name: 'signal',
+        doc: 'Create a reactive signal with explicit `.get()` / `.set(value)` / `.subscribe(fn)` methods.\n\nThere is no `.value` property — that pattern belongs to other frameworks.',
+        snippet: 'const ${1:count} = signal(${2:0});\nfunction increment${1/(.*)/${1:/capitalize}/}() {\n\t${1:count}.set(${1:count}.get() + 1);\n}\n$0',
+        kind: CompletionItemKind.Function
+    },
+    {
+        name: 'ref',
+        doc: 'Create a Zenith ref for a DOM node (or stable value). Access via `.current`. Do not use `.value`.',
+        snippet: 'ref<${1:HTMLElement}>()',
+        kind: CompletionItemKind.Function
+    }
 ];
 
 // Common HTML elements
@@ -785,6 +836,17 @@ connection.onHover((params: TextDocumentPositionParams): Hover | null => {
             contents: {
                 kind: MarkupKind.Markdown,
                 value: `### ${hook.name}\n\n${hook.doc}\n\n\`\`\`typescript\n${hook.snippet.replace(/\$\d/g, '').replace('$0', '// ...')}\n\`\`\``
+            }
+        };
+    }
+
+    // Canonical reactivity primitives (signal/ref) with explicit get/set hover doc
+    const platform = PLATFORM_PRIMITIVES.find((p) => p.name === word);
+    if (platform) {
+        return {
+            contents: {
+                kind: MarkupKind.Markdown,
+                value: `### ${platform.name}\n\n${platform.doc}`
             }
         };
     }

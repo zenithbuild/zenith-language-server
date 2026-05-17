@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.13] - 2026-05-17
+
+### Changed
+
+- Completion and hover items now teach only canonical Zenith API audited
+  against the framework runtime (`packages/runtime/src/*`) and docs
+  (`docs/documentation/**`):
+  - `signal` completion snippet is `const count = signal(0); function
+    incrementCount() { count.set(count.get() + 1); }` and the hover docs
+    spell out `.get()` / `.set()` / `.subscribe(fn)`.
+  - `state` completion is the declarative `state ${name} = ${initial}` form.
+  - `ref` completion is `ref<HTMLElement>()`.
+  - Platform primitive completions (`zenMount`, `zenEffect`, `zenWindow`,
+    `zenDocument`, `zenOn`, `zenResize`, `collectRefs`) document the
+    SSR-safety and `ctx.cleanup` contract.
+  - Core module metadata for `zenith` and `zenith:server-contract` now
+    matches the canonical `signal`, `state`, `ref`, `zenMount`, `zenEffect`,
+    `zenWindow`, `zenDocument`, `zenOn`, `zenResize`, `collectRefs`,
+    `allow`, `redirect`, `deny`, `data`, `invalid`, `json`, `text`,
+    `download`, and `withMiddleware` surface.
+
+### Removed
+
+- Stale completion entries for `zenOnMount`, `zenOnDestroy`, `zenOnUpdate`,
+  `zenRef`, `zenState` (React-tuple form), and `useFetch`. These names are
+  not part of the current Zenith API and were teaching editor users
+  framework-foreign idioms.
+- The over-claim of “full IntelliSense” in the server source header. The
+  package provides compiler-backed diagnostics, doc-backed completions, and
+  limited hover content; syntax highlighting lives in
+  `@zenithbuild/language`.
+
+### Added
+
+- API truth gates (`test/api-truth.spec.ts`) covering completion entries,
+  core module metadata, and README canonical examples. Stale framework
+  idioms such as Vue `.value`, React `useState`, Solid `createSignal`,
+  Svelte `$:` and `{#if}/{#each}`, vanilla `onclick=`, React `onClick=`,
+  and Vue `@click=` are blocked from editor-facing surfaces.
+- End-to-end LSP stdio smoke tests that prove the patched language server
+  surfaces canonical `signal` and `state` completions and never returns
+  `count.value` (`test/lsp-stdio.spec.ts`).
+- Pack-payload assertion script (`scripts/assert-pack-payload.mjs`) and a
+  `verify:pack` npm script.
+- `prepublishOnly` lifecycle that builds, runs the full test suite, and
+  asserts the npm payload before publish.
+- README header now points syntax highlighting users to
+  `@zenithbuild/language`.
+
+### Release
+
+- CI release workflow publishes under `--tag next`. `latest` may only be
+  promoted by a human after the Cursor and Neovim verification checklists
+  pass on the published tarball.
+
 ## [0.7.12] - 2026-05-14
 
 ### Added

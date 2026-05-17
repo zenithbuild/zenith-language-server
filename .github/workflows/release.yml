@@ -235,15 +235,37 @@ jobs:
           prerelease: false
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish to NPM
+      - name: Verify npm publish payload
         if: steps.release.outputs.should_release == 'true' && github.event.inputs.dry_run != 'true' && (github.event.inputs.publish_npm == 'true' || github.event.inputs.publish_npm == '')
         working-directory: ${{ matrix.package }}
         run: |
-          # Check if package is not private
+          if [ -f scripts/assert-pack-payload.mjs ]; then
+            node scripts/assert-pack-payload.mjs
+          else
+            echo "No pack-payload verifier defined; skipping"
+          fi
+
+      - name: Publish to NPM (no auto latest)
+        if: steps.release.outputs.should_release == 'true' && github.event.inputs.dry_run != 'true' && (github.event.inputs.publish_npm == 'true' || github.event.inputs.publish_npm == '')
+        working-directory: ${{ matrix.package }}
+        env:
+          NEW_VERSION: ${{ steps.release.outputs.new_version }}
+        run: |
+          # Publishes under an intentional non-default dist-tag so installed
+          # editor (Cursor/Antigravity) and Neovim verification must pass before
+          # `latest` is moved by a human. See docs/manual-neovim-verification.md.
           PRIVATE=$(cat package.json | bun -e "console.log(JSON.parse(await Bun.stdin.text()).private || false)")
           if [ "$PRIVATE" = "false" ]; then
             echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
-            bun publish --access public || npm publish --access public
+            PKG_NAME=$(cat package.json | bun -e "console.log(JSON.parse(await Bun.stdin.text()).name)")
+            echo "::group::npm dist-tag ls (pre)"
+            npm dist-tag ls "$PKG_NAME" || true
+            echo "::endgroup::"
+            npm publish --access public --tag next
+            echo "::group::npm dist-tag ls (post)"
+            npm dist-tag ls "$PKG_NAME" || true
+            echo "::endgroup::"
+            echo "::notice title=Manual promotion required::Run \`npm dist-tag add ${PKG_NAME}@${NEW_VERSION} latest\` only after Cursor + Neovim verification."
           else
             echo "Package is private, skipping NPM publish"
           fi

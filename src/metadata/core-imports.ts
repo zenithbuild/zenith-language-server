@@ -24,61 +24,127 @@ export interface CoreModuleMetadata {
 export const CORE_MODULES: Record<string, CoreModuleMetadata> = {
     'zenith': {
         module: 'zenith',
-        description: 'Core Zenith runtime primitives and lifecycle hooks.',
+        description: 'Core Zenith runtime primitives.',
         exports: [
+            {
+                name: 'signal',
+                kind: 'function',
+                description: 'Create a reactive signal. Returns an object with explicit `.get()` / `.set(value)` / `.subscribe(fn)` methods. There is no `.value` property.',
+                signature: 'signal<T>(initialValue: T): { get(): T; set(next: T): T; subscribe(fn: (value: T) => void): () => void }'
+            },
+            {
+                name: 'state',
+                kind: 'function',
+                description: 'Runtime plain-object store. Reads via `.get()`, writes via `.set(patch | (prev) => next)`. For declarative reactive locals in `.zen` scripts prefer the compiler form `state name = initial`.',
+                signature: 'state<T extends Record<string, unknown>>(initial: T): { get(): Readonly<T>; set(patch: Partial<T> | ((prev: Readonly<T>) => T)): Readonly<T> }'
+            },
+            {
+                name: 'ref',
+                kind: 'function',
+                description: 'Create a Zenith ref for DOM nodes (and stable values). Access via `.current`. Forbidden patterns: `.value`, Vue-style reactive wrappers.',
+                signature: 'ref<T>(initialValue?: T): { current: T | null }'
+            },
             {
                 name: 'zenEffect',
                 kind: 'function',
-                description: 'Reactive effect that re-runs when dependencies change.',
-                signature: 'zenEffect(callback: () => void | (() => void)): void'
+                description: 'Reactive effect that re-runs when its tracked signal/state dependencies change. Provides a context with `cleanup`, `timeout`, `raf`, `debounce` helpers.',
+                signature: 'zenEffect(effect: (ctx: EffectContext) => void | (() => void), options?: EffectOptions): void'
             },
             {
-                name: 'zenOnMount',
+                name: 'zenMount',
                 kind: 'function',
-                description: 'Called when component is mounted to the DOM.',
-                signature: 'zenOnMount(callback: () => void | (() => void)): void'
+                description: 'Run a callback once when the host element mounts. Provides a context with `cleanup(disposer)` for tearing down listeners and timers.',
+                signature: 'zenMount(callback: (ctx: { cleanup(disposer: () => void): void }) => void | (() => void)): void'
             },
             {
-                name: 'zenOnDestroy',
+                name: 'zenWindow',
                 kind: 'function',
-                description: 'Called when component is removed from the DOM.',
-                signature: 'zenOnDestroy(callback: () => void): void'
+                description: 'SSR-safe `window` access. Returns `null` outside the browser. Use instead of the global `window`.',
+                signature: 'zenWindow(): Window | null'
             },
             {
-                name: 'zenOnUpdate',
+                name: 'zenDocument',
                 kind: 'function',
-                description: 'Called after any state update causes a re-render.',
-                signature: 'zenOnUpdate(callback: () => void): void'
+                description: 'SSR-safe `document` access. Returns `null` outside the browser. Use instead of the global `document`.',
+                signature: 'zenDocument(): Document | null'
             },
             {
-                name: 'zenRef',
+                name: 'zenOn',
                 kind: 'function',
-                description: 'Create a reactive reference.',
-                signature: 'zenRef<T>(initial: T): { value: T }'
+                description: 'Add an event listener that is SSR-safe and returns a disposer suitable for `ctx.cleanup(...)`. Forbidden alternative: calling `addEventListener` directly in `.zen` scripts.',
+                signature: 'zenOn<T extends Event>(target: EventTarget | null, eventName: string, handler: (event: T) => void, options?: AddEventListenerOptions): () => void'
             },
             {
-                name: 'zenState',
+                name: 'zenResize',
                 kind: 'function',
-                description: 'Create reactive state.',
-                signature: 'zenState<T>(initial: T): [T, (value: T) => void]'
+                description: 'Subscribe to window resize updates. Returns a disposer suitable for `ctx.cleanup(...)`.',
+                signature: 'zenResize(handler: (size: { w: number; h: number }) => void): () => void'
             },
             {
-                name: 'zenMemo',
+                name: 'collectRefs',
                 kind: 'function',
-                description: 'Memoize a computed value.',
-                signature: 'zenMemo<T>(compute: () => T): T'
+                description: 'Collect multiple Zenith refs into a deterministic array of attached elements. Use instead of `querySelectorAll` for multi-node operations.',
+                signature: 'collectRefs<T extends Element>(...refs: { current: T | null }[]): T[]'
+            }
+        ]
+    },
+    'zenith:server-contract': {
+        module: 'zenith:server-contract',
+        description: 'Server-side route handler primitives and result helpers used inside `<script server lang="ts">` blocks and `page.guard.ts` / `page.load.ts` files.',
+        exports: [
+            {
+                name: 'allow',
+                kind: 'function',
+                description: 'Result helper that allows the request to continue. Returned from `guard(ctx)`.',
+                signature: 'allow(): RouteResult'
             },
             {
-                name: 'zenBatch',
+                name: 'redirect',
                 kind: 'function',
-                description: 'Batch multiple state updates.',
-                signature: 'zenBatch(callback: () => void): void'
+                description: 'Result helper that redirects to the given location. Returned from `guard(ctx)` or `load(ctx)`.',
+                signature: 'redirect(location: string, status?: number): RouteResult'
             },
             {
-                name: 'zenUntrack',
+                name: 'deny',
                 kind: 'function',
-                description: 'Run code without tracking dependencies.',
-                signature: 'zenUntrack<T>(callback: () => T): T'
+                description: 'Result helper that denies the request with an optional status and message.',
+                signature: 'deny(status?: number, message?: string): RouteResult'
+            },
+            {
+                name: 'data',
+                kind: 'function',
+                description: 'Result helper that returns a payload to the route component as `data`. Returned from `load(ctx)` or `action(ctx)`. A plain object returned from `load` is treated as `data(payload)`.',
+                signature: 'data<T>(payload: T): RouteResult<T>'
+            },
+            {
+                name: 'invalid',
+                kind: 'function',
+                description: 'Result helper for invalid action inputs (validation failures, etc.).',
+                signature: 'invalid(reason: string, details?: Record<string, unknown>): RouteResult'
+            },
+            {
+                name: 'json',
+                kind: 'function',
+                description: 'Result helper for JSON responses from `action(ctx)`.',
+                signature: 'json<T>(payload: T, init?: { status?: number; headers?: Record<string, string> }): RouteResult<T>'
+            },
+            {
+                name: 'text',
+                kind: 'function',
+                description: 'Result helper for plain text responses from `action(ctx)`.',
+                signature: 'text(body: string, init?: { status?: number; headers?: Record<string, string> }): RouteResult'
+            },
+            {
+                name: 'download',
+                kind: 'function',
+                description: 'Result helper for downloadable file responses from `action(ctx)`.',
+                signature: 'download(body: BodyInit, filename: string, init?: { status?: number; headers?: Record<string, string> }): RouteResult'
+            },
+            {
+                name: 'withMiddleware',
+                kind: 'function',
+                description: 'Compose route-local middleware around `guard(ctx)`, `load(ctx)`, or `action(ctx)`. Middleware composes left-to-right as declared.',
+                signature: 'withMiddleware<H>(handler: H, ...middleware: Array<(h: H) => H>): H'
             }
         ]
     },

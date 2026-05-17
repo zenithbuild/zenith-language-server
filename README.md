@@ -2,6 +2,11 @@
 
 Language Server Protocol implementation for Zenith editor integrations.
 
+> This package does **not** provide syntax highlighting. TextMate grammar,
+> snippets, VS Code/Cursor extension contributions, and Neovim filetype/syntax
+> runtime files live in [`@zenithbuild/language`](https://github.com/zenithbuild/zenith-language).
+> Install both packages if you need diagnostics + highlighting.
+
 ## Overview
 
 This package provides the standalone language server used by Zenith editor

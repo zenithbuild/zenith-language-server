@@ -1,6 +1,6 @@
 {
   "name": "@zenithbuild/language-server",
-  "version": "0.7.12",
+  "version": "0.7.13",
   "description": "Language Server for Zenith Framework",
   "main": "./dist/server.js",
   "bin": {
@@ -15,7 +15,9 @@
     "release:dry": "bun run scripts/release.ts --dry-run",
     "release:patch": "bun run scripts/release.ts --bump=patch",
     "release:minor": "bun run scripts/release.ts --bump=minor",
-    "release:major": "bun run scripts/release.ts --bump=major"
+    "release:major": "bun run scripts/release.ts --bump=major",
+    "verify:pack": "node scripts/assert-pack-payload.mjs",
+    "prepublishOnly": "bun run build && bun run test:unit && npm run verify:pack"
   },
   "dependencies": {
     "@zenithbuild/compiler": "^0.6.5",

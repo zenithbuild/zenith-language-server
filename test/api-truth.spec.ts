@@ -35,6 +35,7 @@ import {
     PLATFORM_PRIMITIVES
 } from '../src/metadata/completion-metadata';
 import { ROUTER_FUNCTIONS, ZENLINK_PROPS } from '../src/router';
+import { membersForReceiver } from '../src/metadata/receiver-members';
 
 const ROOT = path.resolve(__dirname, '..');
 const COMPLETION_METADATA_PATH = path.join(ROOT, 'src', 'metadata', 'completion-metadata.ts');
@@ -367,6 +368,55 @@ test('project.ts only honors `interface Props { … }` for prop inference', () =
         /matchAll\([^)]*children[^)]*\)/,
         'project.ts must not infer `children` from braced expressions'
     );
+});
+
+// ---------------------------------------------------------------------------
+// Receiver member catalog: framework runtime truth (signal/state/ref)
+// ---------------------------------------------------------------------------
+
+test('signal receiver members match framework runtime truth (get/set/subscribe)', () => {
+    const members = membersForReceiver('signal');
+    const labels = members.map((m) => m.label);
+    assert.deepEqual(labels, ['get', 'set', 'subscribe'], 'signal exposes get/set/subscribe only');
+
+    const set = members.find((m) => m.label === 'set')!;
+    assert.match(set.detail, /set\(nextValue: T\): T/, 'signal.set returns T per packages/runtime/src/signal.ts');
+
+    const get = members.find((m) => m.label === 'get')!;
+    assert.match(get.detail, /get\(\): T/);
+
+    const subscribe = members.find((m) => m.label === 'subscribe')!;
+    assert.match(subscribe.detail, /subscribe\(fn:.*\): \(\) => void/);
+
+    for (const member of members) {
+        assertNoStalePatterns(`receiver-members signal ${member.label}`, `${member.label}\n${member.detail}`);
+    }
+});
+
+test('runtime state receiver members match framework state.ts (Readonly<T> snapshots)', () => {
+    const members = membersForReceiver('runtimeState');
+    const labels = members.map((m) => m.label);
+    assert.deepEqual(labels, ['get', 'set', 'subscribe']);
+
+    const get = members.find((m) => m.label === 'get')!;
+    assert.match(get.detail, /get\(\): Readonly<T>/);
+
+    const set = members.find((m) => m.label === 'set')!;
+    assert.match(set.detail, /set\(patch:.*Partial<T>.*\): Readonly<T>/);
+});
+
+test('ref receiver members expose only `current`', () => {
+    const members = membersForReceiver('ref');
+    const labels = members.map((m) => m.label);
+    assert.deepEqual(labels, ['current']);
+
+    const current = members[0];
+    assert.match(current.detail, /current: T \| null/);
+});
+
+test('declarativeState and unknown receivers expose no members (no fake signal API)', () => {
+    assert.deepEqual(membersForReceiver('declarativeState'), []);
+    assert.deepEqual(membersForReceiver('unknown'), []);
 });
 
 test('catalog-driven completion entries import from canonical metadata module', () => {

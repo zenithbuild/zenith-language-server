@@ -24,7 +24,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 
 // src/server.ts
 var path5 = __toESM(require("path"));
-var import_node4 = require("vscode-languageserver/node");
+var import_node6 = require("vscode-languageserver/node");
 var import_vscode_languageserver_textdocument = require("vscode-languageserver-textdocument");
 
 // src/project.ts
@@ -213,7 +213,7 @@ function resolveComponent(graph, name) {
 
 // src/completion.ts
 var path2 = __toESM(require("path"));
-var import_node2 = require("vscode-languageserver/node");
+var import_node4 = require("vscode-languageserver/node");
 
 // src/metadata/directive-metadata.ts
 var DIRECTIVES = {
@@ -1015,6 +1015,67 @@ function isRouterFunction(name) {
   return ROUTER_FUNCTIONS.some((fn) => fn.name === name);
 }
 
+// src/member-access.ts
+var RECEIVER_BOUNDARY = /[\s;({\[,=+\-*/%&|<>!?:`.]/;
+var MEMBER_ACCESS_PATTERN = /([a-zA-Z_$][\w$]*)\.([a-zA-Z_$][\w$]*)?$/;
+function parseMemberAccess(before) {
+  if (before.length === 0) {
+    return null;
+  }
+  const lineStart = before.lastIndexOf("\n") + 1;
+  const currentLine = before.slice(lineStart);
+  if (isInStringLiteralOnLine(currentLine)) {
+    return null;
+  }
+  const trimmed = before.replace(/\s+$/, "");
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const match = trimmed.match(MEMBER_ACCESS_PATTERN);
+  if (!match) {
+    return null;
+  }
+  const receiver = match[1];
+  const memberPrefix = match[2] ?? "";
+  const matchStart = trimmed.length - match[0].length;
+  if (matchStart > 0) {
+    const boundaryChar = trimmed[matchStart - 1];
+    if (!RECEIVER_BOUNDARY.test(boundaryChar)) {
+      return null;
+    }
+  }
+  return { receiver, memberPrefix };
+}
+function isInStringLiteralOnLine(lineBefore) {
+  let inSingle = false;
+  let inDouble = false;
+  let inTemplate = false;
+  let escaped = false;
+  for (let i = 0; i < lineBefore.length; i++) {
+    const c = lineBefore[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (c === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (!inDouble && !inTemplate && c === "'") {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (!inSingle && !inTemplate && c === '"') {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (!inSingle && !inDouble && c === "`") {
+      inTemplate = !inTemplate;
+    }
+  }
+  return inSingle || inDouble || inTemplate;
+}
+
 // src/extractors.ts
 function extractStates(script) {
   const states = /* @__PURE__ */ new Map();
@@ -1099,7 +1160,301 @@ function getPositionContext(text, offset) {
   const currentWord = wordMatch ? wordMatch[0] : "";
   const afterAt = before.endsWith("@") || currentWord.startsWith("@");
   const afterColon = before.endsWith(":") || currentWord.startsWith(":") && !currentWord.startsWith(":");
-  return { inScript, inStyle, inTag, inExpression, inTemplate, inAttributeValue, tagName, currentWord, afterAt, afterColon };
+  const memberAccess = inScript || inExpression ? parseMemberAccess(before) : null;
+  return {
+    inScript,
+    inStyle,
+    inTag,
+    inExpression,
+    inTemplate,
+    inAttributeValue,
+    tagName,
+    currentWord,
+    afterAt,
+    afterColon,
+    memberAccess
+  };
+}
+
+// src/extractors-bindings.ts
+var BINDING_PATTERNS = [
+  {
+    kind: "signal",
+    pattern: /(?:const|let|var)\s+([a-zA-Z_$][\w$]*)\s*(?::\s*[^=]+)?\s*=\s*signal\s*(?:<[^>]*>)?\s*\(/g
+  },
+  {
+    kind: "runtimeState",
+    pattern: /(?:const|let|var)\s+([a-zA-Z_$][\w$]*)\s*(?::\s*[^=]+)?\s*=\s*state\s*(?:<[^>]*>)?\s*\(/g
+  },
+  {
+    kind: "ref",
+    pattern: /(?:const|let|var)\s+([a-zA-Z_$][\w$]*)\s*(?::\s*[^=]+)?\s*=\s*ref\s*(?:<[^>]*>)?\s*\(/g
+  }
+];
+function extractBindings(script) {
+  const bindings = /* @__PURE__ */ new Map();
+  for (const { kind, pattern } of BINDING_PATTERNS) {
+    pattern.lastIndex = 0;
+    let match;
+    while ((match = pattern.exec(script)) !== null) {
+      bindings.set(match[1], kind);
+    }
+  }
+  return bindings;
+}
+function resolveReceiverKind(name, bindings, states) {
+  const binding = bindings.get(name);
+  if (binding) {
+    return binding;
+  }
+  if (states.has(name)) {
+    return "declarativeState";
+  }
+  return "unknown";
+}
+
+// src/metadata/receiver-members.ts
+var import_node2 = require("vscode-languageserver/node");
+var SIGNAL_MEMBERS = [
+  {
+    label: "get",
+    detail: "get(): T",
+    documentation: "Read the current signal value. Registers a reactive dependency when called inside `zenEffect`.",
+    insertText: "get()"
+  },
+  {
+    label: "set",
+    detail: "set(nextValue: T): T",
+    documentation: "Update the signal value and notify subscribers. Returns the stored value (the new value, or the previous value if unchanged via `Object.is`).",
+    insertText: "set(${0:next})",
+    snippet: true
+  },
+  {
+    label: "subscribe",
+    detail: "subscribe(fn: (value: T) => void): () => void",
+    documentation: "Subscribe to value changes. Returns an unsubscribe function suitable for `ctx.cleanup(...)`.",
+    insertText: "subscribe(${0:fn})",
+    snippet: true
+  }
+];
+var RUNTIME_STATE_MEMBERS = [
+  {
+    label: "get",
+    detail: "get(): Readonly<T>",
+    documentation: "Read the current frozen state snapshot. Registers a reactive dependency when called inside `zenEffect`.",
+    insertText: "get()"
+  },
+  {
+    label: "set",
+    detail: "set(patch: Partial<T> | ((prev: Readonly<T>) => T)): Readonly<T>",
+    documentation: "Patch or replace the state object. Returns the new frozen snapshot. Throws if the result is not a plain object.",
+    insertText: "set(${0:patch})",
+    snippet: true
+  },
+  {
+    label: "subscribe",
+    detail: "subscribe(fn: (next: Readonly<T>) => void): () => void",
+    documentation: "Subscribe to state changes. Returns an unsubscribe function.",
+    insertText: "subscribe(${0:fn})",
+    snippet: true
+  }
+];
+var REF_MEMBERS = [
+  {
+    label: "current",
+    detail: "current: T | null",
+    documentation: "DOM node or value held by the ref. Assigned by the runtime at mount; cleared to `null` on disposal. **Not** reactive \u2014 reading it does not register a dependency.",
+    insertText: "current"
+  }
+];
+var MEMBERS_BY_KIND = {
+  signal: SIGNAL_MEMBERS,
+  runtimeState: RUNTIME_STATE_MEMBERS,
+  ref: REF_MEMBERS,
+  declarativeState: [],
+  unknown: []
+};
+function membersForReceiver(kind) {
+  return MEMBERS_BY_KIND[kind];
+}
+function memberCompletionItems(kind, memberPrefix) {
+  const prefix = memberPrefix.toLowerCase();
+  const specs = membersForReceiver(kind).filter(
+    (member) => !prefix || member.label.toLowerCase().startsWith(prefix)
+  );
+  return specs.map((member, index) => ({
+    label: member.label,
+    kind: import_node2.CompletionItemKind.Method,
+    detail: member.detail,
+    documentation: { kind: import_node2.MarkupKind.Markdown, value: member.documentation },
+    insertText: member.insertText,
+    insertTextFormat: member.snippet ? import_node2.InsertTextFormat.Snippet : import_node2.InsertTextFormat.PlainText,
+    sortText: `0_${String(index).padStart(2, "0")}_${member.label}`
+  }));
+}
+
+// src/completion-script.ts
+var import_node3 = require("vscode-languageserver/node");
+function buildScriptCompletions(ctx, lineBefore, deps) {
+  if (ctx.memberAccess) {
+    return memberAccessCompletions(ctx, deps);
+  }
+  const completions = [];
+  addLifecycleHooks(completions, ctx);
+  addPlatformPrimitives(completions, ctx);
+  addSsrSafeShortcuts(completions, ctx);
+  if (deps.routerEnabled) {
+    addRouterFunctions(completions, ctx);
+  }
+  addDeclaredFunctions(completions, ctx, deps.functions);
+  addDeclarativeStates(completions, ctx, deps.states);
+  addImportPathModules(completions, lineBefore);
+  return completions;
+}
+function memberAccessCompletions(ctx, deps) {
+  if (!ctx.memberAccess) {
+    return [];
+  }
+  const kind = resolveReceiverKind(
+    ctx.memberAccess.receiver,
+    deps.bindings,
+    deps.states
+  );
+  if (kind === "unknown" || kind === "declarativeState") {
+    return [];
+  }
+  return memberCompletionItems(kind, ctx.memberAccess.memberPrefix);
+}
+function addLifecycleHooks(completions, ctx) {
+  for (const hook of LIFECYCLE_HOOKS) {
+    if (!matchesPrefix(hook.name, ctx.currentWord)) {
+      continue;
+    }
+    completions.push({
+      label: hook.name,
+      kind: hook.kind,
+      detail: hook.name === "state" ? "Zenith State" : "Zenith Lifecycle",
+      documentation: { kind: import_node3.MarkupKind.Markdown, value: hook.doc },
+      insertText: hook.snippet,
+      insertTextFormat: import_node3.InsertTextFormat.Snippet,
+      sortText: `0_${hook.name}`,
+      preselect: hook.name === "state" && ctx.currentWord.startsWith("s")
+    });
+  }
+}
+function addPlatformPrimitives(completions, ctx) {
+  for (const prim of PLATFORM_PRIMITIVES) {
+    if (!matchesPrefix(prim.name, ctx.currentWord)) {
+      continue;
+    }
+    completions.push({
+      label: prim.name,
+      kind: prim.kind,
+      detail: "Zenith Platform",
+      documentation: { kind: import_node3.MarkupKind.Markdown, value: prim.doc },
+      insertText: prim.snippet,
+      insertTextFormat: import_node3.InsertTextFormat.Snippet,
+      sortText: `0_${prim.name}`
+    });
+  }
+}
+function addSsrSafeShortcuts(completions, ctx) {
+  const lc = ctx.currentWord.toLowerCase();
+  if (lc === "window" || lc.startsWith("wind")) {
+    completions.push({
+      label: "zenWindow",
+      kind: import_node3.CompletionItemKind.Function,
+      detail: "Zenith (SSR-safe)",
+      documentation: {
+        kind: import_node3.MarkupKind.Markdown,
+        value: "Use zenWindow() instead of window for SSR-safe access."
+      },
+      insertText: "zenWindow()",
+      sortText: "0_zenWindow"
+    });
+  }
+  if (lc === "document" || lc.startsWith("doc")) {
+    completions.push({
+      label: "zenDocument",
+      kind: import_node3.CompletionItemKind.Function,
+      detail: "Zenith (SSR-safe)",
+      documentation: {
+        kind: import_node3.MarkupKind.Markdown,
+        value: "Use zenDocument() instead of document for SSR-safe access."
+      },
+      insertText: "zenDocument()",
+      sortText: "0_zenDocument"
+    });
+  }
+}
+function addRouterFunctions(completions, ctx) {
+  for (const fn of ROUTER_FUNCTIONS) {
+    if (!matchesPrefix(fn.name, ctx.currentWord)) {
+      continue;
+    }
+    completions.push({
+      label: fn.name,
+      kind: import_node3.CompletionItemKind.Function,
+      detail: "@zenithbuild/router",
+      documentation: {
+        kind: import_node3.MarkupKind.Markdown,
+        value: `${fn.description}
+
+**Signature:**
+\`\`\`typescript
+${fn.signature}
+\`\`\``
+      },
+      insertText: `${fn.name}($0)`,
+      insertTextFormat: import_node3.InsertTextFormat.Snippet,
+      sortText: `0_${fn.name}`
+    });
+  }
+}
+function addDeclaredFunctions(completions, ctx, functions) {
+  for (const func of functions) {
+    if (!matchesPrefix(func.name, ctx.currentWord)) {
+      continue;
+    }
+    completions.push({
+      label: func.name,
+      kind: import_node3.CompletionItemKind.Function,
+      detail: `${func.isAsync ? "async " : ""}function ${func.name}(${func.params})`,
+      insertText: `${func.name}($0)`,
+      insertTextFormat: import_node3.InsertTextFormat.Snippet
+    });
+  }
+}
+function addDeclarativeStates(completions, ctx, states) {
+  for (const [name, value] of states) {
+    if (!matchesPrefix(name, ctx.currentWord)) {
+      continue;
+    }
+    completions.push({
+      label: name,
+      kind: import_node3.CompletionItemKind.Variable,
+      detail: `state ${name}`,
+      documentation: `Current value: ${value}`
+    });
+  }
+}
+function addImportPathModules(completions, lineBefore) {
+  const isImportPath = /from\s+['"][^'"]*$/.test(lineBefore) || /import\s+['"][^'"]*$/.test(lineBefore);
+  if (!isImportPath) {
+    return;
+  }
+  for (const mod of getAllModules()) {
+    completions.push({
+      label: mod.module,
+      kind: import_node3.CompletionItemKind.Module,
+      detail: mod.kind === "plugin" ? "Zenith Plugin" : "Zenith Core",
+      documentation: mod.description,
+      insertText: mod.module
+    });
+  }
+}
+function matchesPrefix(name, prefix) {
+  return !prefix || name.toLowerCase().startsWith(prefix.toLowerCase());
 }
 
 // src/completion.ts
@@ -1108,6 +1463,7 @@ function provideCompletions(text, offset, graph) {
   const script = getScriptContent(text);
   const states = extractStates(script);
   const functions = extractFunctions(script);
+  const bindings = extractBindings(script);
   const imports = parseZenithImports(script);
   const routerEnabled = hasRouterImport(imports);
   const zenLinkAvailable = hasZenLinkImport(imports) || routerEnabled;
@@ -1116,13 +1472,27 @@ function provideCompletions(text, offset, graph) {
   const lineBefore = text.substring(lineStart, offset);
   const completions = [];
   if (ctx.inScript) {
-    addScriptContextCompletions(completions, ctx, lineBefore, {
+    const scriptItems = buildScriptCompletions(ctx, lineBefore, {
       states,
       functions,
+      bindings,
       routerEnabled
     });
+    for (const item of scriptItems) {
+      completions.push(item);
+    }
+    if (ctx.memberAccess) {
+      return completions;
+    }
   }
   if (ctx.inExpression) {
+    if (ctx.memberAccess) {
+      const kind = resolveReceiverKind(ctx.memberAccess.receiver, bindings, states);
+      if (kind !== "unknown" && kind !== "declarativeState") {
+        return memberCompletionItems(kind, ctx.memberAccess.memberPrefix);
+      }
+      return [];
+    }
     addExpressionContextCompletions(completions, ctx, states, functions, loopVariables);
   }
   if (ctx.inTemplate && !ctx.inExpression && !ctx.inAttributeValue) {
@@ -1136,118 +1506,11 @@ function provideCompletions(text, offset, graph) {
   }
   return completions;
 }
-function addScriptContextCompletions(completions, ctx, lineBefore, deps) {
-  const { states, functions, routerEnabled } = deps;
-  for (const hook of LIFECYCLE_HOOKS) {
-    if (!ctx.currentWord || hook.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-      completions.push({
-        label: hook.name,
-        kind: hook.kind,
-        detail: hook.name === "state" ? "Zenith State" : "Zenith Lifecycle",
-        documentation: { kind: import_node2.MarkupKind.Markdown, value: hook.doc },
-        insertText: hook.snippet,
-        insertTextFormat: import_node2.InsertTextFormat.Snippet,
-        sortText: `0_${hook.name}`,
-        preselect: hook.name === "state" && ctx.currentWord.startsWith("s")
-      });
-    }
-  }
-  for (const prim of PLATFORM_PRIMITIVES) {
-    if (!ctx.currentWord || prim.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-      completions.push({
-        label: prim.name,
-        kind: prim.kind,
-        detail: "Zenith Platform",
-        documentation: { kind: import_node2.MarkupKind.Markdown, value: prim.doc },
-        insertText: prim.snippet,
-        insertTextFormat: import_node2.InsertTextFormat.Snippet,
-        sortText: `0_${prim.name}`
-      });
-    }
-  }
-  const lc = ctx.currentWord.toLowerCase();
-  if (lc === "window" || lc.startsWith("wind")) {
-    completions.push({
-      label: "zenWindow",
-      kind: import_node2.CompletionItemKind.Function,
-      detail: "Zenith (SSR-safe)",
-      documentation: { kind: import_node2.MarkupKind.Markdown, value: "Use zenWindow() instead of window for SSR-safe access." },
-      insertText: "zenWindow()",
-      sortText: "0_zenWindow"
-    });
-  }
-  if (lc === "document" || lc.startsWith("doc")) {
-    completions.push({
-      label: "zenDocument",
-      kind: import_node2.CompletionItemKind.Function,
-      detail: "Zenith (SSR-safe)",
-      documentation: { kind: import_node2.MarkupKind.Markdown, value: "Use zenDocument() instead of document for SSR-safe access." },
-      insertText: "zenDocument()",
-      sortText: "0_zenDocument"
-    });
-  }
-  if (routerEnabled) {
-    for (const fn of ROUTER_FUNCTIONS) {
-      if (!ctx.currentWord || fn.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-        completions.push({
-          label: fn.name,
-          kind: import_node2.CompletionItemKind.Function,
-          detail: "@zenithbuild/router",
-          documentation: {
-            kind: import_node2.MarkupKind.Markdown,
-            value: `${fn.description}
-
-**Signature:**
-\`\`\`typescript
-${fn.signature}
-\`\`\``
-          },
-          insertText: `${fn.name}($0)`,
-          insertTextFormat: import_node2.InsertTextFormat.Snippet,
-          sortText: `0_${fn.name}`
-        });
-      }
-    }
-  }
-  for (const func of functions) {
-    if (!ctx.currentWord || func.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-      completions.push({
-        label: func.name,
-        kind: import_node2.CompletionItemKind.Function,
-        detail: `${func.isAsync ? "async " : ""}function ${func.name}(${func.params})`,
-        insertText: `${func.name}($0)`,
-        insertTextFormat: import_node2.InsertTextFormat.Snippet
-      });
-    }
-  }
-  for (const [name, value] of states) {
-    if (!ctx.currentWord || name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-      completions.push({
-        label: name,
-        kind: import_node2.CompletionItemKind.Variable,
-        detail: `state ${name}`,
-        documentation: `Current value: ${value}`
-      });
-    }
-  }
-  const isImportPath = /from\s+['"][^'"]*$/.test(lineBefore) || /import\s+['"][^'"]*$/.test(lineBefore);
-  if (isImportPath) {
-    for (const mod of getAllModules()) {
-      completions.push({
-        label: mod.module,
-        kind: import_node2.CompletionItemKind.Module,
-        detail: mod.kind === "plugin" ? "Zenith Plugin" : "Zenith Core",
-        documentation: mod.description,
-        insertText: mod.module
-      });
-    }
-  }
-}
 function addExpressionContextCompletions(completions, _ctx, states, functions, loopVariables) {
   for (const [name, value] of states) {
     completions.push({
       label: name,
-      kind: import_node2.CompletionItemKind.Variable,
+      kind: import_node4.CompletionItemKind.Variable,
       detail: `state ${name}`,
       documentation: `Value: ${value}`,
       sortText: `0_${name}`
@@ -1256,7 +1519,7 @@ function addExpressionContextCompletions(completions, _ctx, states, functions, l
   for (const func of functions) {
     completions.push({
       label: func.name,
-      kind: import_node2.CompletionItemKind.Function,
+      kind: import_node4.CompletionItemKind.Function,
       detail: `${func.isAsync ? "async " : ""}function`,
       insertText: `${func.name}()`,
       sortText: `1_${func.name}`
@@ -1265,7 +1528,7 @@ function addExpressionContextCompletions(completions, _ctx, states, functions, l
   for (const loopVar of loopVariables) {
     completions.push({
       label: loopVar,
-      kind: import_node2.CompletionItemKind.Variable,
+      kind: import_node4.CompletionItemKind.Variable,
       detail: "loop variable",
       sortText: `0_${loopVar}`
     });
@@ -1280,16 +1543,16 @@ function addTemplateContextCompletions(completions, ctx, lineBefore, graph, zenL
         const propStr = info.props.length > 0 ? ` ${info.props[0]}="$1"` : "";
         completions.push({
           label: name,
-          kind: import_node2.CompletionItemKind.Class,
+          kind: import_node4.CompletionItemKind.Class,
           detail: "layout",
           documentation: {
-            kind: import_node2.MarkupKind.Markdown,
+            kind: import_node4.MarkupKind.Markdown,
             value: `**Layout** from \`${path2.basename(info.filePath)}\`
 
 Props: ${info.props.join(", ") || "none"}`
           },
           insertText: isAfterOpenBracket ? `${name}${propStr}>$0</${name}>` : `<${name}${propStr}>$0</${name}>`,
-          insertTextFormat: import_node2.InsertTextFormat.Snippet,
+          insertTextFormat: import_node4.InsertTextFormat.Snippet,
           sortText: `0_${name}`
         });
       }
@@ -1298,16 +1561,16 @@ Props: ${info.props.join(", ") || "none"}`
       if (!ctx.currentWord || name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
         completions.push({
           label: name,
-          kind: import_node2.CompletionItemKind.Class,
+          kind: import_node4.CompletionItemKind.Class,
           detail: "component",
           documentation: {
-            kind: import_node2.MarkupKind.Markdown,
+            kind: import_node4.MarkupKind.Markdown,
             value: `**Component** from \`${path2.basename(info.filePath)}\`
 
 Props: ${info.props.join(", ") || "none"}`
           },
           insertText: isAfterOpenBracket ? `${name} $0/>` : `<${name} $0/>`,
-          insertTextFormat: import_node2.InsertTextFormat.Snippet,
+          insertTextFormat: import_node4.InsertTextFormat.Snippet,
           sortText: `0_${name}`
         });
       }
@@ -1316,14 +1579,14 @@ Props: ${info.props.join(", ") || "none"}`
   if (zenLinkAvailable && (isAfterOpenBracket || isTypingTag && ctx.currentWord.toLowerCase().startsWith("z"))) {
     completions.push({
       label: "ZenLink",
-      kind: import_node2.CompletionItemKind.Class,
+      kind: import_node4.CompletionItemKind.Class,
       detail: "@zenithbuild/router/ZenLink.zen",
       documentation: {
-        kind: import_node2.MarkupKind.Markdown,
+        kind: import_node4.MarkupKind.Markdown,
         value: '**ZenLink** \u2014 canonical soft-navigation anchor.\n\nRenders a real `<a data-zen-link="true" href="...">`. Children inline into the single implicit slot; there is no `children` prop.\n\n**Import:**\n```ts\nimport ZenLink from "@zenithbuild/router/ZenLink.zen";\n```\n\n**Props:** `href` (required), `class`, `target`, `rel`, `id`, `title`, `ariaLabel`, `ariaCurrent`, `ariaDisabled`, `elementRef`, `onClick`, `onHoverIn`, `onHoverOut`, `onFocus`, `onBlur`.'
       },
       insertText: isAfterOpenBracket ? 'ZenLink href="$1">$0</ZenLink>' : '<ZenLink href="$1">$0</ZenLink>',
-      insertTextFormat: import_node2.InsertTextFormat.Snippet,
+      insertTextFormat: import_node4.InsertTextFormat.Snippet,
       sortText: "0_ZenLink"
     });
   }
@@ -1338,11 +1601,11 @@ Props: ${info.props.join(", ") || "none"}`
         }
         completions.push({
           label: el.tag,
-          kind: import_node2.CompletionItemKind.Property,
+          kind: import_node4.CompletionItemKind.Property,
           detail: "HTML",
           documentation: el.doc,
           insertText: isAfterOpenBracket ? snippet : `<${snippet}>`,
-          insertTextFormat: import_node2.InsertTextFormat.Snippet,
+          insertTextFormat: import_node4.InsertTextFormat.Snippet,
           sortText: `1_${el.tag}`
         });
       }
@@ -1358,16 +1621,16 @@ function addTagContextCompletions(completions, ctx, graph, zenLinkAvailable) {
         if (directive) {
           completions.push({
             label: directive.name,
-            kind: import_node2.CompletionItemKind.Keyword,
+            kind: import_node4.CompletionItemKind.Keyword,
             detail: directive.category,
             documentation: {
-              kind: import_node2.MarkupKind.Markdown,
+              kind: import_node4.MarkupKind.Markdown,
               value: `${directive.description}
 
 **Syntax:** \`${directive.syntax}\``
             },
             insertText: `${directive.name}="$1"`,
-            insertTextFormat: import_node2.InsertTextFormat.Snippet,
+            insertTextFormat: import_node4.InsertTextFormat.Snippet,
             sortText: `0_${directive.name}`
           });
         }
@@ -1378,11 +1641,11 @@ function addTagContextCompletions(completions, ctx, graph, zenLinkAvailable) {
     for (const event of DOM_EVENTS) {
       completions.push({
         label: `on:${event}`,
-        kind: import_node2.CompletionItemKind.Event,
+        kind: import_node4.CompletionItemKind.Event,
         detail: "event binding",
         documentation: `Bind to ${event} event`,
         insertText: `on:${event}={$1}`,
-        insertTextFormat: import_node2.InsertTextFormat.Snippet,
+        insertTextFormat: import_node4.InsertTextFormat.Snippet,
         sortText: `1_on:${event}`
       });
     }
@@ -1391,11 +1654,11 @@ function addTagContextCompletions(completions, ctx, graph, zenLinkAvailable) {
     for (const attr of HTML_ATTRIBUTES) {
       completions.push({
         label: `:${attr}`,
-        kind: import_node2.CompletionItemKind.Property,
+        kind: import_node4.CompletionItemKind.Property,
         detail: "reactive binding",
         documentation: `Reactive binding for ${attr}`,
         insertText: `:${attr}="$1"`,
-        insertTextFormat: import_node2.InsertTextFormat.Snippet,
+        insertTextFormat: import_node4.InsertTextFormat.Snippet,
         sortText: `1_:${attr}`
       });
     }
@@ -1406,10 +1669,10 @@ function addTagContextCompletions(completions, ctx, graph, zenLinkAvailable) {
       for (const prop of component.props) {
         completions.push({
           label: prop,
-          kind: import_node2.CompletionItemKind.Property,
+          kind: import_node4.CompletionItemKind.Property,
           detail: `prop of <${ctx.tagName}>`,
           insertText: `${prop}={$1}`,
-          insertTextFormat: import_node2.InsertTextFormat.Snippet,
+          insertTextFormat: import_node4.InsertTextFormat.Snippet,
           sortText: `0_${prop}`
         });
       }
@@ -1422,11 +1685,11 @@ function addTagContextCompletions(completions, ctx, graph, zenLinkAvailable) {
         const insertText = stringLike ? `${prop.name}="$1"` : `${prop.name}={$1}`;
         completions.push({
           label: prop.name,
-          kind: import_node2.CompletionItemKind.Property,
+          kind: import_node4.CompletionItemKind.Property,
           detail: prop.required ? `${prop.type} (required)` : prop.type,
           documentation: prop.description,
           insertText,
-          insertTextFormat: import_node2.InsertTextFormat.Snippet,
+          insertTextFormat: import_node4.InsertTextFormat.Snippet,
           sortText: prop.required ? `0_${prop.name}` : `1_${prop.name}`
         });
       }
@@ -1436,10 +1699,10 @@ function addTagContextCompletions(completions, ctx, graph, zenLinkAvailable) {
     if (!ctx.currentWord || attr.startsWith(ctx.currentWord.toLowerCase())) {
       completions.push({
         label: attr,
-        kind: import_node2.CompletionItemKind.Property,
+        kind: import_node4.CompletionItemKind.Property,
         detail: "HTML attribute",
         insertText: `${attr}="$1"`,
-        insertTextFormat: import_node2.InsertTextFormat.Snippet,
+        insertTextFormat: import_node4.InsertTextFormat.Snippet,
         sortText: `3_${attr}`
       });
     }
@@ -1451,7 +1714,7 @@ function addAttributeValueCompletions(completions, lineBefore, functions) {
     for (const func of functions) {
       completions.push({
         label: func.name,
-        kind: import_node2.CompletionItemKind.Function,
+        kind: import_node4.CompletionItemKind.Function,
         detail: "function",
         insertText: func.name
       });
@@ -1460,7 +1723,7 @@ function addAttributeValueCompletions(completions, lineBefore, functions) {
 }
 
 // src/hover.ts
-var import_node3 = require("vscode-languageserver/node");
+var import_node5 = require("vscode-languageserver/node");
 function provideHover(text, offset, graph) {
   const before = text.substring(0, offset);
   const after = text.substring(offset);
@@ -1510,7 +1773,7 @@ function hoverDirective(word) {
   const notes = directive.name === "zen:for" ? "- No runtime loop\n- Compiled into static DOM instructions\n- Creates scope: `item`, `index`" : "- Compile-time directive\n- No runtime assumptions\n- Processed at build time";
   return {
     contents: {
-      kind: import_node3.MarkupKind.Markdown,
+      kind: import_node5.MarkupKind.Markdown,
       value: `### ${directive.name}
 
 ${directive.description}
@@ -1535,7 +1798,7 @@ function hoverRouterFunction(word) {
     return null;
   return {
     contents: {
-      kind: import_node3.MarkupKind.Markdown,
+      kind: import_node5.MarkupKind.Markdown,
       value: `### ${fn.name}
 
 **@zenithbuild/router**
@@ -1555,7 +1818,7 @@ function hoverLifecycle(word) {
     return null;
   return {
     contents: {
-      kind: import_node3.MarkupKind.Markdown,
+      kind: import_node5.MarkupKind.Markdown,
       value: `### ${hook.name}
 
 ${hook.doc}
@@ -1572,7 +1835,7 @@ function hoverPlatform(word) {
     return null;
   return {
     contents: {
-      kind: import_node3.MarkupKind.Markdown,
+      kind: import_node5.MarkupKind.Markdown,
       value: `### ${platform.name}
 
 ${platform.doc}`
@@ -1588,7 +1851,7 @@ function hoverZenLink(word, text) {
     return null;
   return {
     contents: {
-      kind: import_node3.MarkupKind.Markdown,
+      kind: import_node5.MarkupKind.Markdown,
       value: '### `<ZenLink>`\n\n**@zenithbuild/router/ZenLink.zen**\n\nCanonical soft-navigation anchor. Renders a real `<a data-zen-link="true" href="...">`. Children are inlined through the single implicit slot \u2014 there is no `children` prop.\n\n**Import:**\n```ts\nimport ZenLink from "@zenithbuild/router/ZenLink.zen";\n```\n\n**Required props:**\n- `href` (string)\n\n**Optional props:**\n- `class`, `target`, `rel`, `id`, `title`\n- `ariaLabel`, `ariaCurrent`, `ariaDisabled`\n- `elementRef`\n- `onClick`, `onHoverIn`, `onHoverOut`, `onFocus`, `onBlur`\n\n**Not props on ZenLink:** `to`, `preload`, `replace`, `activeClass`, `children`.'
     }
   };
@@ -1599,7 +1862,7 @@ function hoverState(word, script) {
     return null;
   return {
     contents: {
-      kind: import_node3.MarkupKind.Markdown,
+      kind: import_node5.MarkupKind.Markdown,
       value: `### state \`${word}\`
 
 **Type:** inferred
@@ -1615,7 +1878,7 @@ function hoverFunction(word, script) {
     return null;
   return {
     contents: {
-      kind: import_node3.MarkupKind.Markdown,
+      kind: import_node5.MarkupKind.Markdown,
       value: `### ${func.isAsync ? "async " : ""}function \`${func.name}\`
 
 \`\`\`typescript
@@ -1634,7 +1897,7 @@ function hoverImport(word, script) {
         const owner = resolved.kind === "plugin" ? "Plugin" : resolved.kind === "core" ? "Core" : "External";
         return {
           contents: {
-            kind: import_node3.MarkupKind.Markdown,
+            kind: import_node5.MarkupKind.Markdown,
             value: `### ${word}
 
 **${owner}** (${imp.module})
@@ -1658,7 +1921,7 @@ function hoverComponent(word, graph) {
     return null;
   return {
     contents: {
-      kind: import_node3.MarkupKind.Markdown,
+      kind: import_node5.MarkupKind.Markdown,
       value: `### ${component.type} \`<${component.name}>\`
 
 **File:** \`${component.filePath}\`
@@ -1673,7 +1936,7 @@ function hoverHtmlElement(word) {
     return null;
   return {
     contents: {
-      kind: import_node3.MarkupKind.Markdown,
+      kind: import_node5.MarkupKind.Markdown,
       value: `### HTML \`<${htmlEl.tag}>\`
 
 ${htmlEl.doc}`
@@ -2328,8 +2591,8 @@ function normalizeSettings(input) {
 }
 
 // src/server.ts
-var connection = (0, import_node4.createConnection)(import_node4.ProposedFeatures.all);
-var documents = new import_node4.TextDocuments(import_vscode_languageserver_textdocument.TextDocument);
+var connection = (0, import_node6.createConnection)(import_node6.ProposedFeatures.all);
+var documents = new import_node6.TextDocuments(import_vscode_languageserver_textdocument.TextDocument);
 var projectGraphs = /* @__PURE__ */ new Map();
 var workspaceFolders = [];
 var globalSettings = DEFAULT_SETTINGS;
@@ -2358,7 +2621,7 @@ connection.onInitialize((params) => {
   }
   return {
     capabilities: {
-      textDocumentSync: import_node4.TextDocumentSyncKind.Incremental,
+      textDocumentSync: import_node6.TextDocumentSyncKind.Incremental,
       completionProvider: {
         resolveProvider: true,
         triggerCharacters: ["{", "<", '"', "'", "=", ".", " ", ":", "(", "@"]
@@ -2369,7 +2632,7 @@ connection.onInitialize((params) => {
   };
 });
 connection.onInitialized(() => {
-  connection.client.register(import_node4.DidChangeConfigurationNotification.type);
+  connection.client.register(import_node6.DidChangeConfigurationNotification.type);
 });
 connection.onCompletion((params) => {
   const document = documents.get(params.textDocument.uri);

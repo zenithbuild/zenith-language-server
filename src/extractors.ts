@@ -7,6 +7,7 @@
  */
 
 import { parseForExpression } from './metadata/directive-metadata';
+import { parseMemberAccess, type MemberAccessSite } from './member-access';
 
 export interface PositionContext {
     inScript: boolean;
@@ -19,6 +20,7 @@ export interface PositionContext {
     currentWord: string;
     afterAt: boolean;
     afterColon: boolean;
+    memberAccess: MemberAccessSite | null;
 }
 
 export interface DeclaredFunction {
@@ -147,5 +149,19 @@ export function getPositionContext(text: string, offset: number): PositionContex
     const afterAt = before.endsWith('@') || currentWord.startsWith('@');
     const afterColon = before.endsWith(':') || (currentWord.startsWith(':') && !currentWord.startsWith(':'));
 
-    return { inScript, inStyle, inTag, inExpression, inTemplate, inAttributeValue, tagName, currentWord, afterAt, afterColon };
+    const memberAccess = (inScript || inExpression) ? parseMemberAccess(before) : null;
+
+    return {
+        inScript,
+        inStyle,
+        inTag,
+        inExpression,
+        inTemplate,
+        inAttributeValue,
+        tagName,
+        currentWord,
+        afterAt,
+        afterColon,
+        memberAccess
+    };
 }

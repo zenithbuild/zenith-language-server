@@ -22,8 +22,6 @@ import {
 } from './metadata/directive-metadata';
 
 import {
-    LIFECYCLE_HOOKS,
-    PLATFORM_PRIMITIVES,
     HTML_ELEMENTS,
     HTML_ATTRIBUTES,
     DOM_EVENTS
@@ -32,14 +30,10 @@ import {
 import {
     parseZenithImports,
     hasRouterImport,
-    hasZenLinkImport,
-    getAllModules
+    hasZenLinkImport
 } from './imports';
 
-import {
-    ROUTER_FUNCTIONS,
-    ZENLINK_PROPS
-} from './router';
+import { ZENLINK_PROPS } from './router';
 
 import { ProjectGraph, resolveComponent } from './project';
 
@@ -51,6 +45,10 @@ import {
     getPositionContext,
     getScriptContent
 } from './extractors';
+
+import { extractBindings, resolveReceiverKind } from './extractors-bindings';
+import { memberCompletionItems } from './metadata/receiver-members';
+import { buildScriptCompletions } from './completion-script';
 
 /**
  * Produce completion items for the given document position.
@@ -64,6 +62,7 @@ export function provideCompletions(
     const script = getScriptContent(text);
     const states = extractStates(script);
     const functions = extractFunctions(script);
+    const bindings = extractBindings(script);
     const imports = parseZenithImports(script);
     const routerEnabled = hasRouterImport(imports);
     const zenLinkAvailable = hasZenLinkImport(imports) || routerEnabled;
@@ -75,14 +74,28 @@ export function provideCompletions(
     const completions: CompletionItem[] = [];
 
     if (ctx.inScript) {
-        addScriptContextCompletions(completions, ctx, lineBefore, {
+        const scriptItems = buildScriptCompletions(ctx, lineBefore, {
             states,
             functions,
+            bindings,
             routerEnabled
         });
+        for (const item of scriptItems) {
+            completions.push(item);
+        }
+        if (ctx.memberAccess) {
+            return completions;
+        }
     }
 
     if (ctx.inExpression) {
+        if (ctx.memberAccess) {
+            const kind = resolveReceiverKind(ctx.memberAccess.receiver, bindings, states);
+            if (kind !== 'unknown' && kind !== 'declarativeState') {
+                return memberCompletionItems(kind, ctx.memberAccess.memberPrefix);
+            }
+            return [];
+        }
         addExpressionContextCompletions(completions, ctx, states, functions, loopVariables);
     }
 
@@ -99,127 +112,6 @@ export function provideCompletions(
     }
 
     return completions;
-}
-
-interface ScriptDeps {
-    states: Map<string, string>;
-    functions: ReturnType<typeof extractFunctions>;
-    routerEnabled: boolean;
-}
-
-function addScriptContextCompletions(
-    completions: CompletionItem[],
-    ctx: PositionContext,
-    lineBefore: string,
-    deps: ScriptDeps
-) {
-    const { states, functions, routerEnabled } = deps;
-
-    for (const hook of LIFECYCLE_HOOKS) {
-        if (!ctx.currentWord || hook.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-            completions.push({
-                label: hook.name,
-                kind: hook.kind,
-                detail: hook.name === 'state' ? 'Zenith State' : 'Zenith Lifecycle',
-                documentation: { kind: MarkupKind.Markdown, value: hook.doc },
-                insertText: hook.snippet,
-                insertTextFormat: InsertTextFormat.Snippet,
-                sortText: `0_${hook.name}`,
-                preselect: hook.name === 'state' && ctx.currentWord.startsWith('s')
-            });
-        }
-    }
-
-    for (const prim of PLATFORM_PRIMITIVES) {
-        if (!ctx.currentWord || prim.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-            completions.push({
-                label: prim.name,
-                kind: prim.kind,
-                detail: 'Zenith Platform',
-                documentation: { kind: MarkupKind.Markdown, value: prim.doc },
-                insertText: prim.snippet,
-                insertTextFormat: InsertTextFormat.Snippet,
-                sortText: `0_${prim.name}`
-            });
-        }
-    }
-
-    const lc = ctx.currentWord.toLowerCase();
-    if (lc === 'window' || lc.startsWith('wind')) {
-        completions.push({
-            label: 'zenWindow',
-            kind: CompletionItemKind.Function,
-            detail: 'Zenith (SSR-safe)',
-            documentation: { kind: MarkupKind.Markdown, value: 'Use zenWindow() instead of window for SSR-safe access.' },
-            insertText: 'zenWindow()',
-            sortText: '0_zenWindow'
-        });
-    }
-    if (lc === 'document' || lc.startsWith('doc')) {
-        completions.push({
-            label: 'zenDocument',
-            kind: CompletionItemKind.Function,
-            detail: 'Zenith (SSR-safe)',
-            documentation: { kind: MarkupKind.Markdown, value: 'Use zenDocument() instead of document for SSR-safe access.' },
-            insertText: 'zenDocument()',
-            sortText: '0_zenDocument'
-        });
-    }
-
-    if (routerEnabled) {
-        for (const fn of ROUTER_FUNCTIONS) {
-            if (!ctx.currentWord || fn.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-                completions.push({
-                    label: fn.name,
-                    kind: CompletionItemKind.Function,
-                    detail: '@zenithbuild/router',
-                    documentation: {
-                        kind: MarkupKind.Markdown,
-                        value: `${fn.description}\n\n**Signature:**\n\`\`\`typescript\n${fn.signature}\n\`\`\``
-                    },
-                    insertText: `${fn.name}($0)`,
-                    insertTextFormat: InsertTextFormat.Snippet,
-                    sortText: `0_${fn.name}`
-                });
-            }
-        }
-    }
-
-    for (const func of functions) {
-        if (!ctx.currentWord || func.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-            completions.push({
-                label: func.name,
-                kind: CompletionItemKind.Function,
-                detail: `${func.isAsync ? 'async ' : ''}function ${func.name}(${func.params})`,
-                insertText: `${func.name}($0)`,
-                insertTextFormat: InsertTextFormat.Snippet
-            });
-        }
-    }
-
-    for (const [name, value] of states) {
-        if (!ctx.currentWord || name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-            completions.push({
-                label: name,
-                kind: CompletionItemKind.Variable,
-                detail: `state ${name}`,
-                documentation: `Current value: ${value}`
-            });
-        }
-    }
-
-    const isImportPath = /from\s+['"][^'"]*$/.test(lineBefore) || /import\s+['"][^'"]*$/.test(lineBefore);
-    if (isImportPath) {
-        for (const mod of getAllModules()) {
-            completions.push({
-                label: mod.module,
-                kind: CompletionItemKind.Module,
-                detail: mod.kind === 'plugin' ? 'Zenith Plugin' : 'Zenith Core',
-                documentation: mod.description,
-                insertText: mod.module
-            });
-        }
-    }
 }
 
 function addExpressionContextCompletions(

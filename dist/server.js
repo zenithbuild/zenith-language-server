@@ -336,7 +336,7 @@ var PLATFORM_PRIMITIVES = [
   {
     name: "signal",
     doc: "Create a reactive signal with explicit `.get()` / `.set(value)` / `.subscribe(fn)` methods.\n\nThere is no `.value` property \u2014 that pattern belongs to other frameworks.",
-    snippet: "const ${1:count} = signal(${2:0});\nfunction increment${1/(.*)/${1:/capitalize}/}() {\n	${1:count}.set(${1:count}.get() + 1);\n}\n$0",
+    snippet: "const ${1:count} = signal(${2:0});\nfunction ${3:increment}() {\n	${1:count}.set(${1:count}.get() + 1);\n}\n$0",
     kind: import_node.CompletionItemKind.Function
   },
   {

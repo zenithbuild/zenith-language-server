@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Replaced VS Code-only regex snippet transform on the `signal` completion
+  (`${1/(.*)/${1:/capitalize}/}`) with portable LSP tab stops so Neovim
+  `vim.snippet` / blink.cmp can expand the counter example without parse errors.
+
 ### Added
 
 - Context-aware member completion for `signal`, runtime `state()`, and `ref`

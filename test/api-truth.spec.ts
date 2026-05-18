@@ -36,6 +36,10 @@ import {
 } from '../src/metadata/completion-metadata';
 import { ROUTER_FUNCTIONS, ZENLINK_PROPS } from '../src/router';
 import { membersForReceiver } from '../src/metadata/receiver-members';
+import {
+    assertPortableSnippet,
+    collectCatalogSnippets
+} from './helpers/snippet-portability';
 
 const ROOT = path.resolve(__dirname, '..');
 const COMPLETION_METADATA_PATH = path.join(ROOT, 'src', 'metadata', 'completion-metadata.ts');
@@ -156,8 +160,10 @@ test('signal completion snippet teaches canonical `.get()` / `.set()` API', () =
     const snippets = extractFieldStrings(platformBlock, 'snippet');
     const signalSnippet = snippets.find((s) => /signal\(/.test(s));
     assert.ok(signalSnippet, 'signal completion must have a snippet');
+    assertPortableSnippet('PLATFORM_PRIMITIVES signal', signalSnippet!);
     assert.match(signalSnippet!, /\.set\(/, 'signal snippet must teach `.set(...)`');
     assert.match(signalSnippet!, /\.get\(\)/, 'signal snippet must teach `.get()`');
+    assert.doesNotMatch(signalSnippet!, /\$\{\d+\//, 'signal snippet must not use VS Code regex transforms');
 });
 
 test('ref completion snippet uses canonical `ref<T>()` form', () => {
@@ -417,6 +423,12 @@ test('ref receiver members expose only `current`', () => {
 test('declarativeState and unknown receivers expose no members (no fake signal API)', () => {
     assert.deepEqual(membersForReceiver('declarativeState'), []);
     assert.deepEqual(membersForReceiver('unknown'), []);
+});
+
+test('all completion catalog snippets are portable (no VS Code transform syntax)', () => {
+    for (const snippet of collectCatalogSnippets()) {
+        assertPortableSnippet('completion catalog', snippet);
+    }
 });
 
 test('catalog-driven completion entries import from canonical metadata module', () => {

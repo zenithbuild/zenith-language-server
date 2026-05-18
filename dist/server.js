@@ -23,9 +23,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // src/server.ts
-var import_node = require("vscode-languageserver/node");
+var path5 = __toESM(require("path"));
+var import_node4 = require("vscode-languageserver/node");
 var import_vscode_languageserver_textdocument = require("vscode-languageserver-textdocument");
-var path4 = __toESM(require("path"));
 
 // src/project.ts
 var fs = __toESM(require("fs"));
@@ -158,12 +158,6 @@ function extractPropsFromFile(filePath) {
         }
       }
     }
-    const usagePatterns = content.matchAll(/\{(title|lang|className|children|href|src|alt|id|name)\}/g);
-    for (const match of usagePatterns) {
-      if (match[1] && !props.includes(match[1])) {
-        props.push(match[1]);
-      }
-    }
     return props;
   } catch {
     return [];
@@ -216,6 +210,10 @@ function resolveComponent(graph, name) {
   }
   return void 0;
 }
+
+// src/completion.ts
+var path2 = __toESM(require("path"));
+var import_node2 = require("vscode-languageserver/node");
 
 // src/metadata/directive-metadata.ts
 var DIRECTIVES = {
@@ -281,6 +279,154 @@ function parseForExpression(expression) {
     source: match[3].trim()
   };
 }
+
+// src/metadata/completion-metadata.ts
+var import_node = require("vscode-languageserver/node");
+var LIFECYCLE_HOOKS = [
+  {
+    name: "state",
+    doc: "Declare a reactive local variable in a Zenith `.zen` script.\n\nReads use the plain identifier; writes use ordinary assignment (e.g. `count += 1`).",
+    snippet: "state ${1:name} = ${2:initial}",
+    kind: import_node.CompletionItemKind.Keyword
+  },
+  {
+    name: "zenMount",
+    doc: "Run a callback once when the host element mounts.\n\nThe context exposes `cleanup(disposer)` for tearing down listeners and timers.",
+    snippet: "zenMount((ctx) => {\n	$0\n})",
+    kind: import_node.CompletionItemKind.Function
+  },
+  {
+    name: "zenEffect",
+    doc: "Reactive effect that re-runs when its tracked signal/state dependencies change.",
+    snippet: "zenEffect((ctx) => {\n	$0\n})",
+    kind: import_node.CompletionItemKind.Function
+  }
+];
+var PLATFORM_PRIMITIVES = [
+  {
+    name: "zenWindow",
+    doc: "SSR-safe `window` access. Returns `null` outside the browser. Use instead of the global `window`.",
+    snippet: "zenWindow()",
+    kind: import_node.CompletionItemKind.Function
+  },
+  {
+    name: "zenDocument",
+    doc: "SSR-safe `document` access. Returns `null` outside the browser. Use instead of the global `document`.",
+    snippet: "zenDocument()",
+    kind: import_node.CompletionItemKind.Function
+  },
+  {
+    name: "zenOn",
+    doc: "Add an event listener returning a disposer suitable for `ctx.cleanup(...)`.\n\nForbidden alternative: calling `addEventListener` directly in `.zen` scripts.",
+    snippet: "zenOn(${1:target}, '${2:event}', ${3:handler})",
+    kind: import_node.CompletionItemKind.Function
+  },
+  {
+    name: "zenResize",
+    doc: "Subscribe to window resize updates. Returns a disposer suitable for `ctx.cleanup(...)`.",
+    snippet: "zenResize(({ w, h }) => {\n	$0\n})",
+    kind: import_node.CompletionItemKind.Function
+  },
+  {
+    name: "collectRefs",
+    doc: "Collect multiple refs into a deterministic array of attached elements. Use instead of `querySelectorAll` for multi-node operations.",
+    snippet: "collectRefs(${1:refA}, ${2:refB})",
+    kind: import_node.CompletionItemKind.Function
+  },
+  {
+    name: "signal",
+    doc: "Create a reactive signal with explicit `.get()` / `.set(value)` / `.subscribe(fn)` methods.\n\nThere is no `.value` property \u2014 that pattern belongs to other frameworks.",
+    snippet: "const ${1:count} = signal(${2:0});\nfunction increment${1/(.*)/${1:/capitalize}/}() {\n	${1:count}.set(${1:count}.get() + 1);\n}\n$0",
+    kind: import_node.CompletionItemKind.Function
+  },
+  {
+    name: "ref",
+    doc: "Create a Zenith ref for a DOM node (or stable value). Access via `.current`. Do not use `.value`.",
+    snippet: "ref<${1:HTMLElement}>()",
+    kind: import_node.CompletionItemKind.Function
+  }
+];
+var HTML_ELEMENTS = [
+  { tag: "div", doc: "Generic container element" },
+  { tag: "span", doc: "Inline container element" },
+  { tag: "p", doc: "Paragraph element" },
+  { tag: "a", doc: "Anchor/link element", attrs: 'href="$1"' },
+  { tag: "button", doc: "Button element", attrs: "on:click={$1}" },
+  { tag: "input", doc: "Input element", attrs: 'type="$1"', selfClosing: true },
+  { tag: "img", doc: "Image element", attrs: 'src="$1" alt="$2"', selfClosing: true },
+  { tag: "h1", doc: "Heading level 1" },
+  { tag: "h2", doc: "Heading level 2" },
+  { tag: "h3", doc: "Heading level 3" },
+  { tag: "h4", doc: "Heading level 4" },
+  { tag: "h5", doc: "Heading level 5" },
+  { tag: "h6", doc: "Heading level 6" },
+  { tag: "ul", doc: "Unordered list" },
+  { tag: "ol", doc: "Ordered list" },
+  { tag: "li", doc: "List item" },
+  { tag: "nav", doc: "Navigation section" },
+  { tag: "header", doc: "Header section" },
+  { tag: "footer", doc: "Footer section" },
+  { tag: "main", doc: "Main content" },
+  { tag: "section", doc: "Generic section" },
+  { tag: "article", doc: "Article content" },
+  { tag: "aside", doc: "Sidebar content" },
+  { tag: "form", doc: "Form element" },
+  { tag: "label", doc: "Form label", attrs: 'for="$1"' },
+  { tag: "select", doc: "Dropdown select" },
+  { tag: "option", doc: "Select option", attrs: 'value="$1"' },
+  { tag: "textarea", doc: "Multi-line text input" },
+  { tag: "table", doc: "Table element" },
+  { tag: "thead", doc: "Table header group" },
+  { tag: "tbody", doc: "Table body group" },
+  { tag: "tr", doc: "Table row" },
+  { tag: "th", doc: "Table header cell" },
+  { tag: "td", doc: "Table data cell" },
+  { tag: "br", doc: "Line break", selfClosing: true },
+  { tag: "hr", doc: "Horizontal rule", selfClosing: true },
+  { tag: "strong", doc: "Strong emphasis (bold)" },
+  { tag: "em", doc: "Emphasis (italic)" },
+  { tag: "code", doc: "Inline code" },
+  { tag: "pre", doc: "Preformatted text" },
+  { tag: "blockquote", doc: "Block quotation" },
+  {
+    tag: "slot",
+    doc: 'Single implicit slot. Marks the position where a parent component\'s inner markup is inlined at compile time. There are no named slots and no `children` prop; the slot is the only inlining point.\n\nExample:\n```html\n<!-- inside Card.zen template -->\n<div class="card">\n  <slot></slot>\n</div>\n\n<!-- at call site -->\n<Card>Hello</Card>\n```',
+    selfClosing: true
+  }
+];
+var HTML_ATTRIBUTES = [
+  "id",
+  "class",
+  "style",
+  "title",
+  "href",
+  "src",
+  "alt",
+  "type",
+  "name",
+  "value",
+  "placeholder",
+  "disabled",
+  "checked",
+  "readonly",
+  "required",
+  "hidden"
+];
+var DOM_EVENTS = [
+  "click",
+  "change",
+  "input",
+  "submit",
+  "keydown",
+  "keyup",
+  "keypress",
+  "focus",
+  "blur",
+  "mouseover",
+  "mouseout",
+  "mouseenter",
+  "mouseleave"
+];
 
 // src/metadata/core-imports.ts
 var CORE_MODULES = {
@@ -410,51 +556,93 @@ var CORE_MODULES = {
       }
     ]
   },
-  "zenith/router": {
-    module: "zenith/router",
-    description: "File-based SPA router for Zenith framework.",
+  "@zenithbuild/router": {
+    module: "@zenithbuild/router",
+    description: "Shipped Zenith router package. Use `navigate()` for programmatic navigation and `<ZenLink>` (imported from `@zenithbuild/router/ZenLink.zen`) for anchor-based soft navigation.",
     exports: [
       {
-        name: "ZenLink",
-        kind: "component",
-        description: "Declarative navigation component for routes.",
-        signature: '<ZenLink to="/path" preload?>{children}</ZenLink>'
-      },
-      {
-        name: "useRoute",
+        name: "createRouter",
         kind: "function",
-        description: "Provides reactive access to the current route. Must be called at top-level script scope.",
-        signature: "useRoute(): { path: string; params: Record<string, string>; query: Record<string, string> }"
-      },
-      {
-        name: "useRouter",
-        kind: "function",
-        description: "Provides programmatic navigation methods.",
-        signature: "useRouter(): { navigate: (to: string, options?: { replace?: boolean }) => void; back: () => void; forward: () => void }"
+        description: "Bootstrap a router instance over a route table and a container element. Typically called once at app entry.",
+        signature: "createRouter(config: { routes: Route[]; container: HTMLElement }): { start(): Promise<void>; destroy(): void }"
       },
       {
         name: "navigate",
         kind: "function",
-        description: "Navigate to a route programmatically.",
-        signature: "navigate(to: string, options?: { replace?: boolean }): void"
+        description: "Navigate to a path. Performs the canonical Zenith soft-navigation flow (guard \u2192 load \u2192 render). Falls back to a hard navigation when the router cannot safely mirror server truth.",
+        signature: "navigate(path: string): Promise<void>"
       },
       {
-        name: "prefetch",
+        name: "refreshCurrentRoute",
         kind: "function",
-        description: "Prefetch a route for faster navigation.",
-        signature: "prefetch(path: string): Promise<void>"
+        description: "Re-resolve and re-render the current route. Useful after mutating server-side data that should be re-fetched by `load`.",
+        signature: "refreshCurrentRoute(): Promise<void>"
       },
       {
-        name: "isActive",
+        name: "back",
         kind: "function",
-        description: "Check if a route is currently active.",
-        signature: "isActive(path: string, exact?: boolean): boolean"
+        description: "Go back one entry in the navigation history.",
+        signature: "back(): void"
       },
       {
-        name: "getRoute",
+        name: "forward",
         kind: "function",
-        description: "Get the current route state.",
-        signature: "getRoute(): { path: string; params: Record<string, string>; query: Record<string, string> }"
+        description: "Go forward one entry in the navigation history.",
+        signature: "forward(): void"
+      },
+      {
+        name: "getCurrentPath",
+        kind: "function",
+        description: "Read the current route path. Returns the active URL pathname without query/hash.",
+        signature: "getCurrentPath(): string"
+      },
+      {
+        name: "onRouteChange",
+        kind: "function",
+        description: "Subscribe to navigation completion events. Returns a disposer.",
+        signature: "onRouteChange(listener: (event: { path: string; routeId: string; params: Record<string, string> }) => void): () => void"
+      },
+      {
+        name: "on",
+        kind: "function",
+        description: "Subscribe to a router lifecycle event (e.g. `route:beforeleave`, `route:enter`, `route:error`). Returns a disposer.",
+        signature: "on(event: string, listener: (payload: unknown) => void): () => void"
+      },
+      {
+        name: "off",
+        kind: "function",
+        description: "Remove a previously registered router lifecycle listener.",
+        signature: "off(event: string, listener: (payload: unknown) => void): void"
+      },
+      {
+        name: "setAdvisoryRoutePolicy",
+        kind: "function",
+        description: "Configure client-side advisory behavior (deny handling, login redirect, 403 path). Security remains server-authoritative; this only shapes navigation UX.",
+        signature: "setAdvisoryRoutePolicy(policy: AdvisoryRoutePolicy): void"
+      },
+      {
+        name: "zenNavigationShell",
+        kind: "function",
+        description: "Mount a navigation-shell controller that observes phase transitions (`idle` \u2192 `leaving` \u2192 `swapping` \u2192 `entering`) for chrome animations and skeletons.",
+        signature: "zenNavigationShell(options?: NavigationShellOptions): NavigationShellController"
+      },
+      {
+        name: "matchRoute",
+        kind: "function",
+        description: "Match a path against a static route table. Returns the matched route and extracted params, or `null`.",
+        signature: "matchRoute(routes: Route[], path: string): { route: Route; params: Record<string, string> } | null"
+      }
+    ]
+  },
+  "@zenithbuild/router/ZenLink.zen": {
+    module: "@zenithbuild/router/ZenLink.zen",
+    description: 'Default-exports the canonical `<ZenLink>` anchor component. Renders a real `<a data-zen-link="true" href="...">` and opts into Zenith soft navigation. Imported as `import ZenLink from "@zenithbuild/router/ZenLink.zen"`.',
+    exports: [
+      {
+        name: "ZenLink",
+        kind: "component",
+        description: "Default export: the `<ZenLink>` component. Props: `href` (required), `class`, `target`, `rel`, `id`, `title`, `ariaLabel`, `ariaCurrent`, `ariaDisabled`, `elementRef`, `onClick`, `onHoverIn`, `onHoverOut`, `onFocus`, `onBlur`. Children are inlined into the single implicit slot.",
+        signature: '<ZenLink href="/path">label</ZenLink>'
       }
     ]
   }
@@ -542,6 +730,19 @@ function isKnownPluginModule(moduleName) {
 }
 
 // src/imports.ts
+function isZenithTrackedModule(moduleName) {
+  if (moduleName === "zenith")
+    return true;
+  if (moduleName.startsWith("zenith/"))
+    return true;
+  if (moduleName.startsWith("zenith:"))
+    return true;
+  if (moduleName === "@zenithbuild/router")
+    return true;
+  if (moduleName.startsWith("@zenithbuild/router/"))
+    return true;
+  return false;
+}
 function parseZenithImports(script) {
   const imports = [];
   const lines = script.split("\n");
@@ -554,7 +755,7 @@ function parseZenithImports(script) {
       const namespaceImport = importMatch[3];
       const defaultImport = importMatch[4];
       const moduleName = importMatch[5];
-      if (moduleName.startsWith("zenith") || moduleName.startsWith("zenith:")) {
+      if (isZenithTrackedModule(moduleName)) {
         const specifiers = [];
         if (namedImports) {
           const parts = namedImports.split(",");
@@ -579,7 +780,7 @@ function parseZenithImports(script) {
     const sideEffectMatch = line.match(/import\s+['"]([^'"]+)['"]/);
     if (sideEffectMatch && !importMatch) {
       const moduleName = sideEffectMatch[1];
-      if (moduleName.startsWith("zenith") || moduleName.startsWith("zenith:")) {
+      if (isZenithTrackedModule(moduleName)) {
         imports.push({
           module: moduleName,
           specifiers: [],
@@ -624,7 +825,14 @@ function resolveExport(moduleName, exportName) {
   return void 0;
 }
 function hasRouterImport(imports) {
-  return imports.some((i) => i.module === "zenith/router");
+  return imports.some(
+    (i) => i.module === "@zenithbuild/router" || i.module.startsWith("@zenithbuild/router/") || i.module === "zenith/router"
+  );
+}
+function hasZenLinkImport(imports) {
+  return imports.some(
+    (i) => i.module === "@zenithbuild/router/ZenLink.zen" || i.module === "@zenithbuild/router" && i.specifiers.includes("ZenLink")
+  );
 }
 function getAllModules() {
   const modules = [];
@@ -646,86 +854,839 @@ function getAllModules() {
 }
 
 // src/router.ts
-var ROUTER_HOOKS = {
-  useRoute: {
-    name: "useRoute",
-    owner: "Router Hook (zenith/router)",
-    description: "Provides reactive access to the current route state.",
-    restrictions: "Must be called at top-level script scope.",
-    returns: "{ path: string; params: Record<string, string>; query: Record<string, string> }",
-    signature: "useRoute(): RouteState"
+var ROUTER_FUNCTIONS = [
+  {
+    name: "createRouter",
+    description: "Bootstrap a router instance over a route table and a container element. Typically called once at app entry.",
+    signature: "createRouter(config: { routes: Route[]; container: HTMLElement }): { start(): Promise<void>; destroy(): void }"
   },
-  useRouter: {
-    name: "useRouter",
-    owner: "Router Hook (zenith/router)",
-    description: "Provides programmatic navigation methods.",
-    restrictions: "Must be called at top-level script scope.",
-    returns: "{ navigate, back, forward, go }",
-    signature: "useRouter(): Router"
+  {
+    name: "navigate",
+    description: "Navigate to a path. Runs the canonical Zenith soft-navigation flow (guard \u2192 load \u2192 render). Falls back to hard navigation when the router cannot mirror server truth.",
+    signature: "navigate(path: string): Promise<void>"
+  },
+  {
+    name: "refreshCurrentRoute",
+    description: "Re-resolve and re-render the current route. Useful after mutating server-side data that should be re-fetched by `load`.",
+    signature: "refreshCurrentRoute(): Promise<void>"
+  },
+  {
+    name: "back",
+    description: "Go back one entry in the navigation history.",
+    signature: "back(): void"
+  },
+  {
+    name: "forward",
+    description: "Go forward one entry in the navigation history.",
+    signature: "forward(): void"
+  },
+  {
+    name: "getCurrentPath",
+    description: "Read the current route path. Returns the active URL pathname without query/hash.",
+    signature: "getCurrentPath(): string"
+  },
+  {
+    name: "onRouteChange",
+    description: "Subscribe to navigation completion events. Returns a disposer.",
+    signature: "onRouteChange(listener: (event: { path: string; routeId: string; params: Record<string, string> }) => void): () => void"
+  },
+  {
+    name: "on",
+    description: "Subscribe to a router lifecycle event (e.g. `route:beforeleave`, `route:enter`, `route:error`). Returns a disposer.",
+    signature: "on(event: string, listener: (payload: unknown) => void): () => void"
+  },
+  {
+    name: "off",
+    description: "Remove a previously registered router lifecycle listener.",
+    signature: "off(event: string, listener: (payload: unknown) => void): void"
+  },
+  {
+    name: "setAdvisoryRoutePolicy",
+    description: "Configure client-side advisory behavior (deny handling, login redirect, 403 path). Security remains server-authoritative; this only shapes navigation UX.",
+    signature: "setAdvisoryRoutePolicy(policy: AdvisoryRoutePolicy): void"
+  },
+  {
+    name: "zenNavigationShell",
+    description: "Mount a navigation-shell controller that observes phase transitions (`idle` \u2192 `leaving` \u2192 `swapping` \u2192 `entering`) for chrome animations and skeletons.",
+    signature: "zenNavigationShell(options?: NavigationShellOptions): NavigationShellController"
+  },
+  {
+    name: "matchRoute",
+    description: "Match a path against a static route table. Returns the matched route and extracted params, or `null`.",
+    signature: "matchRoute(routes: Route[], path: string): { route: Route; params: Record<string, string> } | null"
   }
-};
+];
 var ZENLINK_PROPS = [
   {
-    name: "to",
+    name: "href",
     type: "string",
     required: true,
-    description: "The route path to navigate to."
-  },
-  {
-    name: "preload",
-    type: "boolean",
-    required: false,
-    description: "Whether to prefetch the route on hover."
-  },
-  {
-    name: "replace",
-    type: "boolean",
-    required: false,
-    description: "Whether to replace the current history entry instead of pushing a new one."
+    description: 'Anchor href. Renders as a real `<a href="...">` with `data-zen-link="true"`.'
   },
   {
     name: "class",
     type: "string",
     required: false,
-    description: "CSS class to apply to the link."
+    description: "CSS class applied to the rendered anchor."
   },
   {
-    name: "activeClass",
+    name: "target",
     type: "string",
     required: false,
-    description: "CSS class to apply when the link is active."
-  }
-];
-var ROUTE_FIELDS = [
+    description: "Standard anchor `target` attribute (e.g. `_blank`)."
+  },
   {
-    name: "path",
+    name: "rel",
     type: "string",
-    description: 'The current route path (e.g., "/blog/my-post").'
+    required: false,
+    description: "Standard anchor `rel` attribute (e.g. `noopener noreferrer`)."
   },
   {
-    name: "params",
-    type: "Record<string, string>",
-    description: 'Dynamic route parameters (e.g., { slug: "my-post" }).'
+    name: "id",
+    type: "string",
+    required: false,
+    description: "Element id."
   },
   {
-    name: "query",
-    type: "Record<string, string>",
-    description: 'Query string parameters (e.g., { page: "1" }).'
+    name: "title",
+    type: "string",
+    required: false,
+    description: "Tooltip / accessible title for the anchor."
+  },
+  {
+    name: "ariaLabel",
+    type: "string",
+    required: false,
+    description: "Accessible label (rendered as `aria-label`)."
+  },
+  {
+    name: "ariaCurrent",
+    type: "string",
+    required: false,
+    description: "Current-link indicator (rendered as `aria-current`, e.g. `page`)."
+  },
+  {
+    name: "ariaDisabled",
+    type: "string",
+    required: false,
+    description: "Disabled indicator (rendered as `aria-disabled`)."
+  },
+  {
+    name: "elementRef",
+    type: "Ref<HTMLAnchorElement>",
+    required: false,
+    description: "Forwarded ref that receives the underlying `<a>` element after mount."
+  },
+  {
+    name: "onClick",
+    type: "(event: MouseEvent) => void",
+    required: false,
+    description: "Click handler. Use to intercept navigation when needed."
+  },
+  {
+    name: "onHoverIn",
+    type: "(event: PointerEvent) => void",
+    required: false,
+    description: "Pointer-enter handler (Zenith `on:hoverin` alias)."
+  },
+  {
+    name: "onHoverOut",
+    type: "(event: PointerEvent) => void",
+    required: false,
+    description: "Pointer-leave handler (Zenith `on:hoverout` alias)."
+  },
+  {
+    name: "onFocus",
+    type: "(event: FocusEvent) => void",
+    required: false,
+    description: "Focus handler."
+  },
+  {
+    name: "onBlur",
+    type: "(event: FocusEvent) => void",
+    required: false,
+    description: "Blur handler."
   }
 ];
-function getRouterHook(name) {
-  return ROUTER_HOOKS[name];
+function getRouterFunction(name) {
+  return ROUTER_FUNCTIONS.find((fn) => fn.name === name);
 }
-function isRouterHook(name) {
-  return name in ROUTER_HOOKS;
+function isRouterFunction(name) {
+  return ROUTER_FUNCTIONS.some((fn) => fn.name === name);
+}
+
+// src/extractors.ts
+function extractStates(script) {
+  const states = /* @__PURE__ */ new Map();
+  const statePattern = /state\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*([^;\n]+)/g;
+  let match;
+  while ((match = statePattern.exec(script)) !== null) {
+    if (match[1] && match[2]) {
+      states.set(match[1], match[2].trim());
+    }
+  }
+  return states;
+}
+function extractFunctions(script) {
+  const functions = [];
+  const funcPattern = /(async\s+)?function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(([^)]*)\)/g;
+  let match;
+  while ((match = funcPattern.exec(script)) !== null) {
+    if (match[2]) {
+      functions.push({
+        name: match[2],
+        params: match[3] || "",
+        isAsync: !!match[1]
+      });
+    }
+  }
+  const arrowPattern = /(?:const|let)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*(async\s+)?\([^)]*\)\s*=>/g;
+  while ((match = arrowPattern.exec(script)) !== null) {
+    if (match[1]) {
+      functions.push({
+        name: match[1],
+        params: "",
+        isAsync: !!match[2]
+      });
+    }
+  }
+  return functions;
+}
+function extractLoopVariables(text) {
+  const vars = [];
+  const loopPattern = /zen:for\s*=\s*["']([^"']+)["']/g;
+  let match;
+  while ((match = loopPattern.exec(text)) !== null) {
+    const parsed = parseForExpression(match[1]);
+    if (parsed) {
+      vars.push(parsed.itemVar);
+      if (parsed.indexVar)
+        vars.push(parsed.indexVar);
+    }
+  }
+  return vars;
+}
+function getScriptContent(text) {
+  const match = text.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
+  return match ? match[1] : "";
+}
+function getPositionContext(text, offset) {
+  const before = text.substring(0, offset);
+  const scriptOpens = (before.match(/<script[^>]*>/gi) || []).length;
+  const scriptCloses = (before.match(/<\/script>/gi) || []).length;
+  const inScript = scriptOpens > scriptCloses;
+  const styleOpens = (before.match(/<style[^>]*>/gi) || []).length;
+  const styleCloses = (before.match(/<\/style>/gi) || []).length;
+  const inStyle = styleOpens > styleCloses;
+  const lastTagOpen = before.lastIndexOf("<");
+  const lastTagClose = before.lastIndexOf(">");
+  const inTag = lastTagOpen > lastTagClose;
+  const lastBraceOpen = before.lastIndexOf("{");
+  const lastBraceClose = before.lastIndexOf("}");
+  const inExpression = lastBraceOpen > lastBraceClose && !inScript && !inStyle;
+  const inTemplate = !inScript && !inStyle;
+  const afterLastTag = before.substring(lastTagOpen);
+  const quoteMatch = afterLastTag.match(/=["'][^"']*$/);
+  const inAttributeValue = inTag && !!quoteMatch;
+  let tagName = null;
+  if (inTag) {
+    const tagMatch = before.substring(lastTagOpen).match(/<\/?([A-Za-z][A-Za-z0-9-]*)/);
+    if (tagMatch) {
+      tagName = tagMatch[1];
+    }
+  }
+  const wordMatch = before.match(/[a-zA-Z_$:@][a-zA-Z0-9_$:-]*$/);
+  const currentWord = wordMatch ? wordMatch[0] : "";
+  const afterAt = before.endsWith("@") || currentWord.startsWith("@");
+  const afterColon = before.endsWith(":") || currentWord.startsWith(":") && !currentWord.startsWith(":");
+  return { inScript, inStyle, inTag, inExpression, inTemplate, inAttributeValue, tagName, currentWord, afterAt, afterColon };
+}
+
+// src/completion.ts
+function provideCompletions(text, offset, graph) {
+  const ctx = getPositionContext(text, offset);
+  const script = getScriptContent(text);
+  const states = extractStates(script);
+  const functions = extractFunctions(script);
+  const imports = parseZenithImports(script);
+  const routerEnabled = hasRouterImport(imports);
+  const zenLinkAvailable = hasZenLinkImport(imports) || routerEnabled;
+  const loopVariables = extractLoopVariables(text);
+  const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
+  const lineBefore = text.substring(lineStart, offset);
+  const completions = [];
+  if (ctx.inScript) {
+    addScriptContextCompletions(completions, ctx, lineBefore, {
+      states,
+      functions,
+      routerEnabled
+    });
+  }
+  if (ctx.inExpression) {
+    addExpressionContextCompletions(completions, ctx, states, functions, loopVariables);
+  }
+  if (ctx.inTemplate && !ctx.inExpression && !ctx.inAttributeValue) {
+    addTemplateContextCompletions(completions, ctx, lineBefore, graph, zenLinkAvailable);
+  }
+  if (ctx.inTag && ctx.tagName && !ctx.inAttributeValue) {
+    addTagContextCompletions(completions, ctx, graph, zenLinkAvailable);
+  }
+  if (ctx.inAttributeValue) {
+    addAttributeValueCompletions(completions, lineBefore, functions);
+  }
+  return completions;
+}
+function addScriptContextCompletions(completions, ctx, lineBefore, deps) {
+  const { states, functions, routerEnabled } = deps;
+  for (const hook of LIFECYCLE_HOOKS) {
+    if (!ctx.currentWord || hook.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
+      completions.push({
+        label: hook.name,
+        kind: hook.kind,
+        detail: hook.name === "state" ? "Zenith State" : "Zenith Lifecycle",
+        documentation: { kind: import_node2.MarkupKind.Markdown, value: hook.doc },
+        insertText: hook.snippet,
+        insertTextFormat: import_node2.InsertTextFormat.Snippet,
+        sortText: `0_${hook.name}`,
+        preselect: hook.name === "state" && ctx.currentWord.startsWith("s")
+      });
+    }
+  }
+  for (const prim of PLATFORM_PRIMITIVES) {
+    if (!ctx.currentWord || prim.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
+      completions.push({
+        label: prim.name,
+        kind: prim.kind,
+        detail: "Zenith Platform",
+        documentation: { kind: import_node2.MarkupKind.Markdown, value: prim.doc },
+        insertText: prim.snippet,
+        insertTextFormat: import_node2.InsertTextFormat.Snippet,
+        sortText: `0_${prim.name}`
+      });
+    }
+  }
+  const lc = ctx.currentWord.toLowerCase();
+  if (lc === "window" || lc.startsWith("wind")) {
+    completions.push({
+      label: "zenWindow",
+      kind: import_node2.CompletionItemKind.Function,
+      detail: "Zenith (SSR-safe)",
+      documentation: { kind: import_node2.MarkupKind.Markdown, value: "Use zenWindow() instead of window for SSR-safe access." },
+      insertText: "zenWindow()",
+      sortText: "0_zenWindow"
+    });
+  }
+  if (lc === "document" || lc.startsWith("doc")) {
+    completions.push({
+      label: "zenDocument",
+      kind: import_node2.CompletionItemKind.Function,
+      detail: "Zenith (SSR-safe)",
+      documentation: { kind: import_node2.MarkupKind.Markdown, value: "Use zenDocument() instead of document for SSR-safe access." },
+      insertText: "zenDocument()",
+      sortText: "0_zenDocument"
+    });
+  }
+  if (routerEnabled) {
+    for (const fn of ROUTER_FUNCTIONS) {
+      if (!ctx.currentWord || fn.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
+        completions.push({
+          label: fn.name,
+          kind: import_node2.CompletionItemKind.Function,
+          detail: "@zenithbuild/router",
+          documentation: {
+            kind: import_node2.MarkupKind.Markdown,
+            value: `${fn.description}
+
+**Signature:**
+\`\`\`typescript
+${fn.signature}
+\`\`\``
+          },
+          insertText: `${fn.name}($0)`,
+          insertTextFormat: import_node2.InsertTextFormat.Snippet,
+          sortText: `0_${fn.name}`
+        });
+      }
+    }
+  }
+  for (const func of functions) {
+    if (!ctx.currentWord || func.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
+      completions.push({
+        label: func.name,
+        kind: import_node2.CompletionItemKind.Function,
+        detail: `${func.isAsync ? "async " : ""}function ${func.name}(${func.params})`,
+        insertText: `${func.name}($0)`,
+        insertTextFormat: import_node2.InsertTextFormat.Snippet
+      });
+    }
+  }
+  for (const [name, value] of states) {
+    if (!ctx.currentWord || name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
+      completions.push({
+        label: name,
+        kind: import_node2.CompletionItemKind.Variable,
+        detail: `state ${name}`,
+        documentation: `Current value: ${value}`
+      });
+    }
+  }
+  const isImportPath = /from\s+['"][^'"]*$/.test(lineBefore) || /import\s+['"][^'"]*$/.test(lineBefore);
+  if (isImportPath) {
+    for (const mod of getAllModules()) {
+      completions.push({
+        label: mod.module,
+        kind: import_node2.CompletionItemKind.Module,
+        detail: mod.kind === "plugin" ? "Zenith Plugin" : "Zenith Core",
+        documentation: mod.description,
+        insertText: mod.module
+      });
+    }
+  }
+}
+function addExpressionContextCompletions(completions, _ctx, states, functions, loopVariables) {
+  for (const [name, value] of states) {
+    completions.push({
+      label: name,
+      kind: import_node2.CompletionItemKind.Variable,
+      detail: `state ${name}`,
+      documentation: `Value: ${value}`,
+      sortText: `0_${name}`
+    });
+  }
+  for (const func of functions) {
+    completions.push({
+      label: func.name,
+      kind: import_node2.CompletionItemKind.Function,
+      detail: `${func.isAsync ? "async " : ""}function`,
+      insertText: `${func.name}()`,
+      sortText: `1_${func.name}`
+    });
+  }
+  for (const loopVar of loopVariables) {
+    completions.push({
+      label: loopVar,
+      kind: import_node2.CompletionItemKind.Variable,
+      detail: "loop variable",
+      sortText: `0_${loopVar}`
+    });
+  }
+}
+function addTemplateContextCompletions(completions, ctx, lineBefore, graph, zenLinkAvailable) {
+  const isAfterOpenBracket = !!lineBefore.match(/<\s*$/);
+  const isTypingTag = ctx.currentWord.length > 0 && !ctx.inTag;
+  if (graph && (isAfterOpenBracket || isTypingTag && /^[A-Z]/.test(ctx.currentWord))) {
+    for (const [name, info] of graph.layouts) {
+      if (!ctx.currentWord || name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
+        const propStr = info.props.length > 0 ? ` ${info.props[0]}="$1"` : "";
+        completions.push({
+          label: name,
+          kind: import_node2.CompletionItemKind.Class,
+          detail: "layout",
+          documentation: {
+            kind: import_node2.MarkupKind.Markdown,
+            value: `**Layout** from \`${path2.basename(info.filePath)}\`
+
+Props: ${info.props.join(", ") || "none"}`
+          },
+          insertText: isAfterOpenBracket ? `${name}${propStr}>$0</${name}>` : `<${name}${propStr}>$0</${name}>`,
+          insertTextFormat: import_node2.InsertTextFormat.Snippet,
+          sortText: `0_${name}`
+        });
+      }
+    }
+    for (const [name, info] of graph.components) {
+      if (!ctx.currentWord || name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
+        completions.push({
+          label: name,
+          kind: import_node2.CompletionItemKind.Class,
+          detail: "component",
+          documentation: {
+            kind: import_node2.MarkupKind.Markdown,
+            value: `**Component** from \`${path2.basename(info.filePath)}\`
+
+Props: ${info.props.join(", ") || "none"}`
+          },
+          insertText: isAfterOpenBracket ? `${name} $0/>` : `<${name} $0/>`,
+          insertTextFormat: import_node2.InsertTextFormat.Snippet,
+          sortText: `0_${name}`
+        });
+      }
+    }
+  }
+  if (zenLinkAvailable && (isAfterOpenBracket || isTypingTag && ctx.currentWord.toLowerCase().startsWith("z"))) {
+    completions.push({
+      label: "ZenLink",
+      kind: import_node2.CompletionItemKind.Class,
+      detail: "@zenithbuild/router/ZenLink.zen",
+      documentation: {
+        kind: import_node2.MarkupKind.Markdown,
+        value: '**ZenLink** \u2014 canonical soft-navigation anchor.\n\nRenders a real `<a data-zen-link="true" href="...">`. Children inline into the single implicit slot; there is no `children` prop.\n\n**Import:**\n```ts\nimport ZenLink from "@zenithbuild/router/ZenLink.zen";\n```\n\n**Props:** `href` (required), `class`, `target`, `rel`, `id`, `title`, `ariaLabel`, `ariaCurrent`, `ariaDisabled`, `elementRef`, `onClick`, `onHoverIn`, `onHoverOut`, `onFocus`, `onBlur`.'
+      },
+      insertText: isAfterOpenBracket ? 'ZenLink href="$1">$0</ZenLink>' : '<ZenLink href="$1">$0</ZenLink>',
+      insertTextFormat: import_node2.InsertTextFormat.Snippet,
+      sortText: "0_ZenLink"
+    });
+  }
+  if (isAfterOpenBracket || isTypingTag && /^[a-z]/.test(ctx.currentWord)) {
+    for (const el of HTML_ELEMENTS) {
+      if (!ctx.currentWord || el.tag.startsWith(ctx.currentWord.toLowerCase())) {
+        let snippet;
+        if (el.selfClosing) {
+          snippet = el.attrs ? `${el.tag} ${el.attrs} />` : `${el.tag} />`;
+        } else {
+          snippet = el.attrs ? `${el.tag} ${el.attrs}>$0</${el.tag}>` : `${el.tag}>$0</${el.tag}>`;
+        }
+        completions.push({
+          label: el.tag,
+          kind: import_node2.CompletionItemKind.Property,
+          detail: "HTML",
+          documentation: el.doc,
+          insertText: isAfterOpenBracket ? snippet : `<${snippet}>`,
+          insertTextFormat: import_node2.InsertTextFormat.Snippet,
+          sortText: `1_${el.tag}`
+        });
+      }
+    }
+  }
+}
+function addTagContextCompletions(completions, ctx, graph, zenLinkAvailable) {
+  const elementType = ctx.tagName === "slot" ? "slot" : /^[A-Z]/.test(ctx.tagName) ? "component" : "element";
+  for (const directiveName of getDirectiveNames()) {
+    if (canPlaceDirective(directiveName, elementType)) {
+      if (!ctx.currentWord || directiveName.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
+        const directive = getDirective(directiveName);
+        if (directive) {
+          completions.push({
+            label: directive.name,
+            kind: import_node2.CompletionItemKind.Keyword,
+            detail: directive.category,
+            documentation: {
+              kind: import_node2.MarkupKind.Markdown,
+              value: `${directive.description}
+
+**Syntax:** \`${directive.syntax}\``
+            },
+            insertText: `${directive.name}="$1"`,
+            insertTextFormat: import_node2.InsertTextFormat.Snippet,
+            sortText: `0_${directive.name}`
+          });
+        }
+      }
+    }
+  }
+  if (!ctx.currentWord || ctx.currentWord.startsWith("on:") || ctx.currentWord === "on") {
+    for (const event of DOM_EVENTS) {
+      completions.push({
+        label: `on:${event}`,
+        kind: import_node2.CompletionItemKind.Event,
+        detail: "event binding",
+        documentation: `Bind to ${event} event`,
+        insertText: `on:${event}={$1}`,
+        insertTextFormat: import_node2.InsertTextFormat.Snippet,
+        sortText: `1_on:${event}`
+      });
+    }
+  }
+  if (ctx.afterColon || ctx.currentWord.startsWith(":")) {
+    for (const attr of HTML_ATTRIBUTES) {
+      completions.push({
+        label: `:${attr}`,
+        kind: import_node2.CompletionItemKind.Property,
+        detail: "reactive binding",
+        documentation: `Reactive binding for ${attr}`,
+        insertText: `:${attr}="$1"`,
+        insertTextFormat: import_node2.InsertTextFormat.Snippet,
+        sortText: `1_:${attr}`
+      });
+    }
+  }
+  if (/^[A-Z]/.test(ctx.tagName) && graph) {
+    const component = resolveComponent(graph, ctx.tagName);
+    if (component) {
+      for (const prop of component.props) {
+        completions.push({
+          label: prop,
+          kind: import_node2.CompletionItemKind.Property,
+          detail: `prop of <${ctx.tagName}>`,
+          insertText: `${prop}={$1}`,
+          insertTextFormat: import_node2.InsertTextFormat.Snippet,
+          sortText: `0_${prop}`
+        });
+      }
+    }
+  }
+  if (zenLinkAvailable && ctx.tagName === "ZenLink") {
+    for (const prop of ZENLINK_PROPS) {
+      if (!ctx.currentWord || prop.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
+        const stringLike = prop.type === "string" || prop.type.startsWith("Ref<");
+        const insertText = stringLike ? `${prop.name}="$1"` : `${prop.name}={$1}`;
+        completions.push({
+          label: prop.name,
+          kind: import_node2.CompletionItemKind.Property,
+          detail: prop.required ? `${prop.type} (required)` : prop.type,
+          documentation: prop.description,
+          insertText,
+          insertTextFormat: import_node2.InsertTextFormat.Snippet,
+          sortText: prop.required ? `0_${prop.name}` : `1_${prop.name}`
+        });
+      }
+    }
+  }
+  for (const attr of HTML_ATTRIBUTES) {
+    if (!ctx.currentWord || attr.startsWith(ctx.currentWord.toLowerCase())) {
+      completions.push({
+        label: attr,
+        kind: import_node2.CompletionItemKind.Property,
+        detail: "HTML attribute",
+        insertText: `${attr}="$1"`,
+        insertTextFormat: import_node2.InsertTextFormat.Snippet,
+        sortText: `3_${attr}`
+      });
+    }
+  }
+}
+function addAttributeValueCompletions(completions, lineBefore, functions) {
+  const eventMatch = lineBefore.match(/on:[a-zA-Z][a-zA-Z0-9_-]*=["'{][^"'{}]*$/);
+  if (eventMatch) {
+    for (const func of functions) {
+      completions.push({
+        label: func.name,
+        kind: import_node2.CompletionItemKind.Function,
+        detail: "function",
+        insertText: func.name
+      });
+    }
+  }
+}
+
+// src/hover.ts
+var import_node3 = require("vscode-languageserver/node");
+function provideHover(text, offset, graph) {
+  const before = text.substring(0, offset);
+  const after = text.substring(offset);
+  const wordBefore = before.match(/[a-zA-Z0-9_$:@-]*$/)?.[0] || "";
+  const wordAfter = after.match(/^[a-zA-Z0-9_$:-]*/)?.[0] || "";
+  const word = wordBefore + wordAfter;
+  if (!word)
+    return null;
+  const directiveHover = hoverDirective(word);
+  if (directiveHover)
+    return directiveHover;
+  const routerHover = hoverRouterFunction(word);
+  if (routerHover)
+    return routerHover;
+  const lifecycleHover = hoverLifecycle(word);
+  if (lifecycleHover)
+    return lifecycleHover;
+  const platformHover = hoverPlatform(word);
+  if (platformHover)
+    return platformHover;
+  const zenLinkHover = hoverZenLink(word, text);
+  if (zenLinkHover)
+    return zenLinkHover;
+  const script = getScriptContent(text);
+  const stateHover = hoverState(word, script);
+  if (stateHover)
+    return stateHover;
+  const functionHover = hoverFunction(word, script);
+  if (functionHover)
+    return functionHover;
+  const importHover = hoverImport(word, script);
+  if (importHover)
+    return importHover;
+  if (graph) {
+    const componentHover = hoverComponent(word, graph);
+    if (componentHover)
+      return componentHover;
+  }
+  return hoverHtmlElement(word);
+}
+function hoverDirective(word) {
+  if (!isDirective(word))
+    return null;
+  const directive = getDirective(word);
+  if (!directive)
+    return null;
+  const notes = directive.name === "zen:for" ? "- No runtime loop\n- Compiled into static DOM instructions\n- Creates scope: `item`, `index`" : "- Compile-time directive\n- No runtime assumptions\n- Processed at build time";
+  return {
+    contents: {
+      kind: import_node3.MarkupKind.Markdown,
+      value: `### ${directive.name}
+
+${directive.description}
+
+**Syntax:** \`${directive.syntax}\`
+
+**Notes:**
+${notes}
+
+**Example:**
+\`\`\`html
+${directive.example}
+\`\`\``
+    }
+  };
+}
+function hoverRouterFunction(word) {
+  if (!isRouterFunction(word))
+    return null;
+  const fn = getRouterFunction(word);
+  if (!fn)
+    return null;
+  return {
+    contents: {
+      kind: import_node3.MarkupKind.Markdown,
+      value: `### ${fn.name}
+
+**@zenithbuild/router**
+
+${fn.description}
+
+**Signature:**
+\`\`\`typescript
+${fn.signature}
+\`\`\``
+    }
+  };
+}
+function hoverLifecycle(word) {
+  const hook = LIFECYCLE_HOOKS.find((h) => h.name === word);
+  if (!hook)
+    return null;
+  return {
+    contents: {
+      kind: import_node3.MarkupKind.Markdown,
+      value: `### ${hook.name}
+
+${hook.doc}
+
+\`\`\`typescript
+${hook.snippet.replace(/\$\d/g, "").replace("$0", "// ...")}
+\`\`\``
+    }
+  };
+}
+function hoverPlatform(word) {
+  const platform = PLATFORM_PRIMITIVES.find((p) => p.name === word);
+  if (!platform)
+    return null;
+  return {
+    contents: {
+      kind: import_node3.MarkupKind.Markdown,
+      value: `### ${platform.name}
+
+${platform.doc}`
+    }
+  };
+}
+function hoverZenLink(word, text) {
+  if (word !== "ZenLink")
+    return null;
+  const script = getScriptContent(text);
+  const imports = parseZenithImports(script);
+  if (!hasZenLinkImport(imports) && !hasRouterImport(imports))
+    return null;
+  return {
+    contents: {
+      kind: import_node3.MarkupKind.Markdown,
+      value: '### `<ZenLink>`\n\n**@zenithbuild/router/ZenLink.zen**\n\nCanonical soft-navigation anchor. Renders a real `<a data-zen-link="true" href="...">`. Children are inlined through the single implicit slot \u2014 there is no `children` prop.\n\n**Import:**\n```ts\nimport ZenLink from "@zenithbuild/router/ZenLink.zen";\n```\n\n**Required props:**\n- `href` (string)\n\n**Optional props:**\n- `class`, `target`, `rel`, `id`, `title`\n- `ariaLabel`, `ariaCurrent`, `ariaDisabled`\n- `elementRef`\n- `onClick`, `onHoverIn`, `onHoverOut`, `onFocus`, `onBlur`\n\n**Not props on ZenLink:** `to`, `preload`, `replace`, `activeClass`, `children`.'
+    }
+  };
+}
+function hoverState(word, script) {
+  const states = extractStates(script);
+  if (!states.has(word))
+    return null;
+  return {
+    contents: {
+      kind: import_node3.MarkupKind.Markdown,
+      value: `### state \`${word}\`
+
+**Type:** inferred
+
+**Initial value:** \`${states.get(word)}\``
+    }
+  };
+}
+function hoverFunction(word, script) {
+  const functions = extractFunctions(script);
+  const func = functions.find((f) => f.name === word);
+  if (!func)
+    return null;
+  return {
+    contents: {
+      kind: import_node3.MarkupKind.Markdown,
+      value: `### ${func.isAsync ? "async " : ""}function \`${func.name}\`
+
+\`\`\`typescript
+${func.isAsync ? "async " : ""}function ${func.name}(${func.params})
+\`\`\``
+    }
+  };
+}
+function hoverImport(word, script) {
+  const imports = parseZenithImports(script);
+  for (const imp of imports) {
+    if (imp.specifiers.includes(word)) {
+      const exportMeta = resolveExport(imp.module, word);
+      if (exportMeta) {
+        const resolved = resolveModule(imp.module);
+        const owner = resolved.kind === "plugin" ? "Plugin" : resolved.kind === "core" ? "Core" : "External";
+        return {
+          contents: {
+            kind: import_node3.MarkupKind.Markdown,
+            value: `### ${word}
+
+**${owner}** (${imp.module})
+
+${exportMeta.description}
+
+**Signature:**
+\`\`\`typescript
+${exportMeta.signature || word}
+\`\`\``
+          }
+        };
+      }
+    }
+  }
+  return null;
+}
+function hoverComponent(word, graph) {
+  const component = resolveComponent(graph, word);
+  if (!component)
+    return null;
+  return {
+    contents: {
+      kind: import_node3.MarkupKind.Markdown,
+      value: `### ${component.type} \`<${component.name}>\`
+
+**File:** \`${component.filePath}\`
+
+**Props:** ${component.props.join(", ") || "none"}`
+    }
+  };
+}
+function hoverHtmlElement(word) {
+  const htmlEl = HTML_ELEMENTS.find((e) => e.tag === word);
+  if (!htmlEl)
+    return null;
+  return {
+    contents: {
+      kind: import_node3.MarkupKind.Markdown,
+      value: `### HTML \`<${htmlEl.tag}>\`
+
+${htmlEl.doc}`
+    }
+  };
 }
 
 // src/diagnostics.ts
-var path3 = __toESM(require("path"));
+var path4 = __toESM(require("path"));
 
 // src/contracts.ts
 var fs2 = __toESM(require("fs"));
-var path2 = __toESM(require("path"));
+var path3 = __toESM(require("path"));
 function stripImportSuffix(specifier) {
   const hashIndex = specifier.indexOf("#");
   const queryIndex = specifier.indexOf("?");
@@ -762,17 +1723,17 @@ function canonicalizePath(candidate) {
   try {
     return fs2.realpathSync.native(candidate);
   } catch {
-    return path2.resolve(candidate);
+    return path3.resolve(candidate);
   }
 }
 function resolveCssImportPath(importingFilePath, specifier, projectRoot) {
   const normalizedSpecifier = stripImportSuffix(specifier);
-  const importingDir = path2.dirname(importingFilePath);
+  const importingDir = path3.dirname(importingFilePath);
   const rootCanonical = canonicalizePath(projectRoot);
-  const unresolvedTarget = normalizedSpecifier.startsWith("/") ? path2.join(rootCanonical, normalizedSpecifier.slice(1)) : path2.resolve(importingDir, normalizedSpecifier);
+  const unresolvedTarget = normalizedSpecifier.startsWith("/") ? path3.join(rootCanonical, normalizedSpecifier.slice(1)) : path3.resolve(importingDir, normalizedSpecifier);
   const targetCanonical = canonicalizePath(unresolvedTarget);
-  const relativeToRoot = path2.relative(rootCanonical, targetCanonical);
-  const escapesProjectRoot = relativeToRoot.startsWith("..") || path2.isAbsolute(relativeToRoot);
+  const relativeToRoot = path3.relative(rootCanonical, targetCanonical);
+  const escapesProjectRoot = relativeToRoot.startsWith("..") || path3.isAbsolute(relativeToRoot);
   return {
     resolvedPath: targetCanonical,
     escapesProjectRoot
@@ -1167,7 +2128,7 @@ function collectCssImportContractDiagnostics(document, text, filePath, projectRo
   if (scriptBlocks.length === 0) {
     return;
   }
-  const effectiveProjectRoot = projectRoot ? path3.resolve(projectRoot) : path3.dirname(filePath);
+  const effectiveProjectRoot = projectRoot ? path4.resolve(projectRoot) : path4.dirname(filePath);
   for (const block of scriptBlocks) {
     const imports = parseImportSpecifiers(block.content, block.contentStartOffset);
     for (const imp of imports) {
@@ -1367,240 +2328,14 @@ function normalizeSettings(input) {
 }
 
 // src/server.ts
-var connection = (0, import_node.createConnection)(import_node.ProposedFeatures.all);
-var documents = new import_node.TextDocuments(import_vscode_languageserver_textdocument.TextDocument);
+var connection = (0, import_node4.createConnection)(import_node4.ProposedFeatures.all);
+var documents = new import_node4.TextDocuments(import_vscode_languageserver_textdocument.TextDocument);
 var projectGraphs = /* @__PURE__ */ new Map();
 var workspaceFolders = [];
 var globalSettings = DEFAULT_SETTINGS;
-var LIFECYCLE_HOOKS = [
-  {
-    name: "state",
-    doc: "Declare a reactive local variable in a Zenith `.zen` script.\n\nReads use the plain identifier; writes use ordinary assignment (e.g. `count += 1`).",
-    snippet: "state ${1:name} = ${2:initial}",
-    kind: import_node.CompletionItemKind.Keyword
-  },
-  {
-    name: "zenMount",
-    doc: "Run a callback once when the host element mounts.\n\nThe context exposes `cleanup(disposer)` for tearing down listeners and timers.",
-    snippet: "zenMount((ctx) => {\n	$0\n})",
-    kind: import_node.CompletionItemKind.Function
-  },
-  {
-    name: "zenEffect",
-    doc: "Reactive effect that re-runs when its tracked signal/state dependencies change.",
-    snippet: "zenEffect((ctx) => {\n	$0\n})",
-    kind: import_node.CompletionItemKind.Function
-  }
-];
-var PLATFORM_PRIMITIVES = [
-  {
-    name: "zenWindow",
-    doc: "SSR-safe `window` access. Returns `null` outside the browser. Use instead of the global `window`.",
-    snippet: "zenWindow()",
-    kind: import_node.CompletionItemKind.Function
-  },
-  {
-    name: "zenDocument",
-    doc: "SSR-safe `document` access. Returns `null` outside the browser. Use instead of the global `document`.",
-    snippet: "zenDocument()",
-    kind: import_node.CompletionItemKind.Function
-  },
-  {
-    name: "zenOn",
-    doc: "Add an event listener returning a disposer suitable for `ctx.cleanup(...)`.\n\nForbidden alternative: calling `addEventListener` directly in `.zen` scripts.",
-    snippet: "zenOn(${1:target}, '${2:event}', ${3:handler})",
-    kind: import_node.CompletionItemKind.Function
-  },
-  {
-    name: "zenResize",
-    doc: "Subscribe to window resize updates. Returns a disposer suitable for `ctx.cleanup(...)`.",
-    snippet: "zenResize(({ w, h }) => {\n	$0\n})",
-    kind: import_node.CompletionItemKind.Function
-  },
-  {
-    name: "collectRefs",
-    doc: "Collect multiple refs into a deterministic array of attached elements. Use instead of `querySelectorAll` for multi-node operations.",
-    snippet: "collectRefs(${1:refA}, ${2:refB})",
-    kind: import_node.CompletionItemKind.Function
-  },
-  {
-    name: "signal",
-    doc: "Create a reactive signal with explicit `.get()` / `.set(value)` / `.subscribe(fn)` methods.\n\nThere is no `.value` property \u2014 that pattern belongs to other frameworks.",
-    snippet: "const ${1:count} = signal(${2:0});\nfunction increment${1/(.*)/${1:/capitalize}/}() {\n	${1:count}.set(${1:count}.get() + 1);\n}\n$0",
-    kind: import_node.CompletionItemKind.Function
-  },
-  {
-    name: "ref",
-    doc: "Create a Zenith ref for a DOM node (or stable value). Access via `.current`. Do not use `.value`.",
-    snippet: "ref<${1:HTMLElement}>()",
-    kind: import_node.CompletionItemKind.Function
-  }
-];
-var HTML_ELEMENTS = [
-  { tag: "div", doc: "Generic container element" },
-  { tag: "span", doc: "Inline container element" },
-  { tag: "p", doc: "Paragraph element" },
-  { tag: "a", doc: "Anchor/link element", attrs: 'href="$1"' },
-  { tag: "button", doc: "Button element", attrs: "on:click={$1}" },
-  { tag: "input", doc: "Input element", attrs: 'type="$1"', selfClosing: true },
-  { tag: "img", doc: "Image element", attrs: 'src="$1" alt="$2"', selfClosing: true },
-  { tag: "h1", doc: "Heading level 1" },
-  { tag: "h2", doc: "Heading level 2" },
-  { tag: "h3", doc: "Heading level 3" },
-  { tag: "h4", doc: "Heading level 4" },
-  { tag: "h5", doc: "Heading level 5" },
-  { tag: "h6", doc: "Heading level 6" },
-  { tag: "ul", doc: "Unordered list" },
-  { tag: "ol", doc: "Ordered list" },
-  { tag: "li", doc: "List item" },
-  { tag: "nav", doc: "Navigation section" },
-  { tag: "header", doc: "Header section" },
-  { tag: "footer", doc: "Footer section" },
-  { tag: "main", doc: "Main content" },
-  { tag: "section", doc: "Generic section" },
-  { tag: "article", doc: "Article content" },
-  { tag: "aside", doc: "Sidebar content" },
-  { tag: "form", doc: "Form element" },
-  { tag: "label", doc: "Form label", attrs: 'for="$1"' },
-  { tag: "select", doc: "Dropdown select" },
-  { tag: "option", doc: "Select option", attrs: 'value="$1"' },
-  { tag: "textarea", doc: "Multi-line text input" },
-  { tag: "table", doc: "Table element" },
-  { tag: "thead", doc: "Table header group" },
-  { tag: "tbody", doc: "Table body group" },
-  { tag: "tr", doc: "Table row" },
-  { tag: "th", doc: "Table header cell" },
-  { tag: "td", doc: "Table data cell" },
-  { tag: "br", doc: "Line break", selfClosing: true },
-  { tag: "hr", doc: "Horizontal rule", selfClosing: true },
-  { tag: "strong", doc: "Strong emphasis (bold)" },
-  { tag: "em", doc: "Emphasis (italic)" },
-  { tag: "code", doc: "Inline code" },
-  { tag: "pre", doc: "Preformatted text" },
-  { tag: "blockquote", doc: "Block quotation" },
-  { tag: "slot", doc: "Zenith slot for child content" }
-];
-var HTML_ATTRIBUTES = [
-  "id",
-  "class",
-  "style",
-  "title",
-  "href",
-  "src",
-  "alt",
-  "type",
-  "name",
-  "value",
-  "placeholder",
-  "disabled",
-  "checked",
-  "readonly",
-  "required",
-  "hidden"
-];
-var DOM_EVENTS = [
-  "click",
-  "change",
-  "input",
-  "submit",
-  "keydown",
-  "keyup",
-  "keypress",
-  "focus",
-  "blur",
-  "mouseover",
-  "mouseout",
-  "mouseenter",
-  "mouseleave"
-];
-function extractStates(script) {
-  const states = /* @__PURE__ */ new Map();
-  const statePattern = /state\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*([^;\n]+)/g;
-  let match;
-  while ((match = statePattern.exec(script)) !== null) {
-    if (match[1] && match[2]) {
-      states.set(match[1], match[2].trim());
-    }
-  }
-  return states;
-}
-function extractFunctions(script) {
-  const functions = [];
-  const funcPattern = /(async\s+)?function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(([^)]*)\)/g;
-  let match;
-  while ((match = funcPattern.exec(script)) !== null) {
-    if (match[2]) {
-      functions.push({
-        name: match[2],
-        params: match[3] || "",
-        isAsync: !!match[1]
-      });
-    }
-  }
-  const arrowPattern = /(?:const|let)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*(async\s+)?\([^)]*\)\s*=>/g;
-  while ((match = arrowPattern.exec(script)) !== null) {
-    if (match[1]) {
-      functions.push({
-        name: match[1],
-        params: "",
-        isAsync: !!match[2]
-      });
-    }
-  }
-  return functions;
-}
-function extractLoopVariables(text) {
-  const vars = [];
-  const loopPattern = /zen:for\s*=\s*["']([^"']+)["']/g;
-  let match;
-  while ((match = loopPattern.exec(text)) !== null) {
-    const parsed = parseForExpression(match[1]);
-    if (parsed) {
-      vars.push(parsed.itemVar);
-      if (parsed.indexVar)
-        vars.push(parsed.indexVar);
-    }
-  }
-  return vars;
-}
-function getScriptContent(text) {
-  const match = text.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
-  return match ? match[1] : "";
-}
-function getPositionContext(text, offset) {
-  const before = text.substring(0, offset);
-  const scriptOpens = (before.match(/<script[^>]*>/gi) || []).length;
-  const scriptCloses = (before.match(/<\/script>/gi) || []).length;
-  const inScript = scriptOpens > scriptCloses;
-  const styleOpens = (before.match(/<style[^>]*>/gi) || []).length;
-  const styleCloses = (before.match(/<\/style>/gi) || []).length;
-  const inStyle = styleOpens > styleCloses;
-  const lastTagOpen = before.lastIndexOf("<");
-  const lastTagClose = before.lastIndexOf(">");
-  const inTag = lastTagOpen > lastTagClose;
-  const lastBraceOpen = before.lastIndexOf("{");
-  const lastBraceClose = before.lastIndexOf("}");
-  const inExpression = lastBraceOpen > lastBraceClose && !inScript && !inStyle;
-  const inTemplate = !inScript && !inStyle;
-  const afterLastTag = before.substring(lastTagOpen);
-  const quoteMatch = afterLastTag.match(/=["'][^"']*$/);
-  const inAttributeValue = inTag && !!quoteMatch;
-  let tagName = null;
-  if (inTag) {
-    const tagMatch = before.substring(lastTagOpen).match(/<\/?([A-Za-z][A-Za-z0-9-]*)/);
-    if (tagMatch) {
-      tagName = tagMatch[1];
-    }
-  }
-  const wordMatch = before.match(/[a-zA-Z_$:@][a-zA-Z0-9_$:-]*$/);
-  const currentWord = wordMatch ? wordMatch[0] : "";
-  const afterAt = before.endsWith("@") || currentWord.startsWith("@");
-  const afterColon = before.endsWith(":") || currentWord.startsWith(":") && !currentWord.startsWith(":");
-  return { inScript, inStyle, inTag, inExpression, inTemplate, inAttributeValue, tagName, currentWord, afterAt, afterColon };
-}
 function getProjectGraph(docUri) {
   const filePath = docUri.replace("file://", "");
-  const projectRoot = detectProjectRoot(path4.dirname(filePath), workspaceFolders);
+  const projectRoot = detectProjectRoot(path5.dirname(filePath), workspaceFolders);
   if (!projectRoot) {
     return null;
   }
@@ -1611,7 +2346,7 @@ function getProjectGraph(docUri) {
 }
 function invalidateProjectGraph(uri) {
   const filePath = uri.replace("file://", "");
-  const projectRoot = detectProjectRoot(path4.dirname(filePath), workspaceFolders);
+  const projectRoot = detectProjectRoot(path5.dirname(filePath), workspaceFolders);
   if (projectRoot) {
     projectGraphs.delete(projectRoot);
   }
@@ -1623,7 +2358,7 @@ connection.onInitialize((params) => {
   }
   return {
     capabilities: {
-      textDocumentSync: import_node.TextDocumentSyncKind.Incremental,
+      textDocumentSync: import_node4.TextDocumentSyncKind.Incremental,
       completionProvider: {
         resolveProvider: true,
         triggerCharacters: ["{", "<", '"', "'", "=", ".", " ", ":", "(", "@"]
@@ -1634,7 +2369,7 @@ connection.onInitialize((params) => {
   };
 });
 connection.onInitialized(() => {
-  connection.client.register(import_node.DidChangeConfigurationNotification.type);
+  connection.client.register(import_node4.DidChangeConfigurationNotification.type);
 });
 connection.onCompletion((params) => {
   const document = documents.get(params.textDocument.uri);
@@ -1642,332 +2377,18 @@ connection.onCompletion((params) => {
     return [];
   const text = document.getText();
   const offset = document.offsetAt(params.position);
-  const ctx = getPositionContext(text, offset);
-  const completions = [];
   const graph = getProjectGraph(params.textDocument.uri);
-  const script = getScriptContent(text);
-  const states = extractStates(script);
-  const functions = extractFunctions(script);
-  const imports = parseZenithImports(script);
-  const routerEnabled = hasRouterImport(imports);
-  const loopVariables = extractLoopVariables(text);
-  const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
-  const lineBefore = text.substring(lineStart, offset);
-  if (ctx.inScript) {
-    for (const hook of LIFECYCLE_HOOKS) {
-      if (!ctx.currentWord || hook.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-        completions.push({
-          label: hook.name,
-          kind: hook.kind,
-          detail: hook.name === "state" ? "Zenith State" : "Zenith Lifecycle",
-          documentation: { kind: import_node.MarkupKind.Markdown, value: hook.doc },
-          insertText: hook.snippet,
-          insertTextFormat: import_node.InsertTextFormat.Snippet,
-          sortText: `0_${hook.name}`,
-          preselect: hook.name === "state" && ctx.currentWord.startsWith("s")
-        });
-      }
-    }
-    for (const prim of PLATFORM_PRIMITIVES) {
-      if (!ctx.currentWord || prim.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-        completions.push({
-          label: prim.name,
-          kind: prim.kind,
-          detail: "Zenith Platform",
-          documentation: { kind: import_node.MarkupKind.Markdown, value: prim.doc },
-          insertText: prim.snippet,
-          insertTextFormat: import_node.InsertTextFormat.Snippet,
-          sortText: `0_${prim.name}`
-        });
-      }
-    }
-    const lc = ctx.currentWord.toLowerCase();
-    if (lc === "window" || lc.startsWith("wind")) {
-      completions.push({
-        label: "zenWindow",
-        kind: import_node.CompletionItemKind.Function,
-        detail: "Zenith (SSR-safe)",
-        documentation: { kind: import_node.MarkupKind.Markdown, value: "Use zenWindow() instead of window for SSR-safe access." },
-        insertText: "zenWindow()",
-        sortText: "0_zenWindow"
-      });
-    }
-    if (lc === "document" || lc.startsWith("doc")) {
-      completions.push({
-        label: "zenDocument",
-        kind: import_node.CompletionItemKind.Function,
-        detail: "Zenith (SSR-safe)",
-        documentation: { kind: import_node.MarkupKind.Markdown, value: "Use zenDocument() instead of document for SSR-safe access." },
-        insertText: "zenDocument()",
-        sortText: "0_zenDocument"
-      });
-    }
-    if (routerEnabled) {
-      for (const hook of Object.values(ROUTER_HOOKS)) {
-        if (!ctx.currentWord || hook.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-          completions.push({
-            label: hook.name,
-            kind: import_node.CompletionItemKind.Function,
-            detail: hook.owner,
-            documentation: { kind: import_node.MarkupKind.Markdown, value: `${hook.description}
-
-**Returns:** \`${hook.returns}\`` },
-            insertText: `${hook.name}()`,
-            sortText: `0_${hook.name}`
-          });
-        }
-      }
-    }
-    for (const func of functions) {
-      if (!ctx.currentWord || func.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-        completions.push({
-          label: func.name,
-          kind: import_node.CompletionItemKind.Function,
-          detail: `${func.isAsync ? "async " : ""}function ${func.name}(${func.params})`,
-          insertText: `${func.name}($0)`,
-          insertTextFormat: import_node.InsertTextFormat.Snippet
-        });
-      }
-    }
-    for (const [name, value] of states) {
-      if (!ctx.currentWord || name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-        completions.push({
-          label: name,
-          kind: import_node.CompletionItemKind.Variable,
-          detail: `state ${name}`,
-          documentation: `Current value: ${value}`
-        });
-      }
-    }
-    const isImportPath = /from\s+['"][^'"]*$/.test(lineBefore) || /import\s+['"][^'"]*$/.test(lineBefore);
-    if (isImportPath) {
-      for (const mod of getAllModules()) {
-        completions.push({
-          label: mod.module,
-          kind: import_node.CompletionItemKind.Module,
-          detail: mod.kind === "plugin" ? "Zenith Plugin" : "Zenith Core",
-          documentation: mod.description,
-          insertText: mod.module
-        });
-      }
-    }
-  }
-  if (ctx.inExpression) {
-    for (const [name, value] of states) {
-      completions.push({
-        label: name,
-        kind: import_node.CompletionItemKind.Variable,
-        detail: `state ${name}`,
-        documentation: `Value: ${value}`,
-        sortText: `0_${name}`
-      });
-    }
-    for (const func of functions) {
-      completions.push({
-        label: func.name,
-        kind: import_node.CompletionItemKind.Function,
-        detail: `${func.isAsync ? "async " : ""}function`,
-        insertText: `${func.name}()`,
-        sortText: `1_${func.name}`
-      });
-    }
-    for (const loopVar of loopVariables) {
-      completions.push({
-        label: loopVar,
-        kind: import_node.CompletionItemKind.Variable,
-        detail: "loop variable",
-        sortText: `0_${loopVar}`
-      });
-    }
-    if (routerEnabled) {
-      for (const field of ROUTE_FIELDS) {
-        completions.push({
-          label: `route.${field.name}`,
-          kind: import_node.CompletionItemKind.Property,
-          detail: field.type,
-          documentation: field.description,
-          sortText: `2_route_${field.name}`
-        });
-      }
-    }
-  }
-  if (ctx.inTemplate && !ctx.inExpression && !ctx.inAttributeValue) {
-    const isAfterOpenBracket = lineBefore.match(/<\s*$/);
-    const isTypingTag = ctx.currentWord.length > 0 && !ctx.inTag;
-    if (graph && (isAfterOpenBracket || isTypingTag && /^[A-Z]/.test(ctx.currentWord))) {
-      for (const [name, info] of graph.layouts) {
-        if (!ctx.currentWord || name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-          const propStr = info.props.length > 0 ? ` ${info.props[0]}="$1"` : "";
-          completions.push({
-            label: name,
-            kind: import_node.CompletionItemKind.Class,
-            detail: `layout`,
-            documentation: { kind: import_node.MarkupKind.Markdown, value: `**Layout** from \`${path4.basename(info.filePath)}\`
-
-Props: ${info.props.join(", ") || "none"}` },
-            insertText: isAfterOpenBracket ? `${name}${propStr}>$0</${name}>` : `<${name}${propStr}>$0</${name}>`,
-            insertTextFormat: import_node.InsertTextFormat.Snippet,
-            sortText: `0_${name}`
-          });
-        }
-      }
-      for (const [name, info] of graph.components) {
-        if (!ctx.currentWord || name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-          completions.push({
-            label: name,
-            kind: import_node.CompletionItemKind.Class,
-            detail: `component`,
-            documentation: { kind: import_node.MarkupKind.Markdown, value: `**Component** from \`${path4.basename(info.filePath)}\`
-
-Props: ${info.props.join(", ") || "none"}` },
-            insertText: isAfterOpenBracket ? `${name} $0/>` : `<${name} $0/>`,
-            insertTextFormat: import_node.InsertTextFormat.Snippet,
-            sortText: `0_${name}`
-          });
-        }
-      }
-    }
-    if (routerEnabled && (isAfterOpenBracket || isTypingTag && ctx.currentWord.toLowerCase().startsWith("z"))) {
-      completions.push({
-        label: "ZenLink",
-        kind: import_node.CompletionItemKind.Class,
-        detail: "router component",
-        documentation: { kind: import_node.MarkupKind.Markdown, value: "**Router Component** (zenith/router)\n\nDeclarative navigation component for routes.\n\n**Props:** to, preload, replace, class, activeClass" },
-        insertText: isAfterOpenBracket ? 'ZenLink to="$1">$0</ZenLink>' : '<ZenLink to="$1">$0</ZenLink>',
-        insertTextFormat: import_node.InsertTextFormat.Snippet,
-        sortText: "0_ZenLink"
-      });
-    }
-    if (isAfterOpenBracket || isTypingTag && /^[a-z]/.test(ctx.currentWord)) {
-      for (const el of HTML_ELEMENTS) {
-        if (!ctx.currentWord || el.tag.startsWith(ctx.currentWord.toLowerCase())) {
-          let snippet;
-          if (el.selfClosing) {
-            snippet = el.attrs ? `${el.tag} ${el.attrs} />` : `${el.tag} />`;
-          } else {
-            snippet = el.attrs ? `${el.tag} ${el.attrs}>$0</${el.tag}>` : `${el.tag}>$0</${el.tag}>`;
-          }
-          completions.push({
-            label: el.tag,
-            kind: import_node.CompletionItemKind.Property,
-            detail: "HTML",
-            documentation: el.doc,
-            insertText: isAfterOpenBracket ? snippet : `<${snippet}>`,
-            insertTextFormat: import_node.InsertTextFormat.Snippet,
-            sortText: `1_${el.tag}`
-          });
-        }
-      }
-    }
-  }
-  if (ctx.inTag && ctx.tagName && !ctx.inAttributeValue) {
-    const elementType = ctx.tagName === "slot" ? "slot" : /^[A-Z]/.test(ctx.tagName) ? "component" : "element";
-    for (const directiveName of getDirectiveNames()) {
-      if (canPlaceDirective(directiveName, elementType)) {
-        if (!ctx.currentWord || directiveName.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-          const directive = getDirective(directiveName);
-          if (directive) {
-            completions.push({
-              label: directive.name,
-              kind: import_node.CompletionItemKind.Keyword,
-              detail: directive.category,
-              documentation: { kind: import_node.MarkupKind.Markdown, value: `${directive.description}
-
-**Syntax:** \`${directive.syntax}\`` },
-              insertText: `${directive.name}="$1"`,
-              insertTextFormat: import_node.InsertTextFormat.Snippet,
-              sortText: `0_${directive.name}`
-            });
-          }
-        }
-      }
-    }
-    if (!ctx.currentWord || ctx.currentWord.startsWith("on:") || ctx.currentWord === "on") {
-      for (const event of DOM_EVENTS) {
-        completions.push({
-          label: `on:${event}`,
-          kind: import_node.CompletionItemKind.Event,
-          detail: "event binding",
-          documentation: `Bind to ${event} event`,
-          insertText: `on:${event}={$1}`,
-          insertTextFormat: import_node.InsertTextFormat.Snippet,
-          sortText: `1_on:${event}`
-        });
-      }
-    }
-    if (ctx.afterColon || ctx.currentWord.startsWith(":")) {
-      for (const attr of HTML_ATTRIBUTES) {
-        completions.push({
-          label: `:${attr}`,
-          kind: import_node.CompletionItemKind.Property,
-          detail: "reactive binding",
-          documentation: `Reactive binding for ${attr}`,
-          insertText: `:${attr}="$1"`,
-          insertTextFormat: import_node.InsertTextFormat.Snippet,
-          sortText: `1_:${attr}`
-        });
-      }
-    }
-    if (/^[A-Z]/.test(ctx.tagName) && graph) {
-      const component = resolveComponent(graph, ctx.tagName);
-      if (component) {
-        for (const prop of component.props) {
-          completions.push({
-            label: prop,
-            kind: import_node.CompletionItemKind.Property,
-            detail: `prop of <${ctx.tagName}>`,
-            insertText: `${prop}={$1}`,
-            insertTextFormat: import_node.InsertTextFormat.Snippet,
-            sortText: `0_${prop}`
-          });
-        }
-      }
-    }
-    if (routerEnabled && ctx.tagName === "ZenLink") {
-      for (const prop of ZENLINK_PROPS) {
-        if (!ctx.currentWord || prop.name.toLowerCase().startsWith(ctx.currentWord.toLowerCase())) {
-          completions.push({
-            label: prop.name,
-            kind: import_node.CompletionItemKind.Property,
-            detail: prop.required ? `${prop.type} (required)` : prop.type,
-            documentation: prop.description,
-            insertText: prop.name === "to" ? `${prop.name}="$1"` : `${prop.name}`,
-            insertTextFormat: import_node.InsertTextFormat.Snippet,
-            sortText: prop.required ? `0_${prop.name}` : `1_${prop.name}`
-          });
-        }
-      }
-    }
-    for (const attr of HTML_ATTRIBUTES) {
-      if (!ctx.currentWord || attr.startsWith(ctx.currentWord.toLowerCase())) {
-        completions.push({
-          label: attr,
-          kind: import_node.CompletionItemKind.Property,
-          detail: "HTML attribute",
-          insertText: `${attr}="$1"`,
-          insertTextFormat: import_node.InsertTextFormat.Snippet,
-          sortText: `3_${attr}`
-        });
-      }
-    }
-  }
-  if (ctx.inAttributeValue) {
-    const eventMatch = lineBefore.match(/on:[a-zA-Z][a-zA-Z0-9_-]*=["'{][^"'{}]*$/);
-    if (eventMatch) {
-      for (const func of functions) {
-        completions.push({
-          label: func.name,
-          kind: import_node.CompletionItemKind.Function,
-          detail: "function",
-          insertText: func.name
-        });
-      }
-    }
-  }
-  return completions;
+  return provideCompletions(text, offset, graph);
 });
-connection.onCompletionResolve((item) => {
-  return item;
+connection.onCompletionResolve((item) => item);
+connection.onHover((params) => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document)
+    return null;
+  const text = document.getText();
+  const offset = document.offsetAt(params.position);
+  const graph = getProjectGraph(params.textDocument.uri);
+  return provideHover(text, offset, graph);
 });
 connection.onCodeAction((params) => {
   const document = documents.get(params.textDocument.uri);
@@ -1978,192 +2399,6 @@ connection.onCodeAction((params) => {
   const domLintActions = buildDomLintCodeActions(document, params.context.diagnostics);
   const windowDocActions = buildWindowDocumentCodeActions(document, params.range);
   return [...eventActions, ...domLintActions, ...windowDocActions];
-});
-connection.onHover((params) => {
-  const document = documents.get(params.textDocument.uri);
-  if (!document)
-    return null;
-  const text = document.getText();
-  const offset = document.offsetAt(params.position);
-  const before = text.substring(0, offset);
-  const after = text.substring(offset);
-  const wordBefore = before.match(/[a-zA-Z0-9_$:@-]*$/)?.[0] || "";
-  const wordAfter = after.match(/^[a-zA-Z0-9_$:-]*/)?.[0] || "";
-  const word = wordBefore + wordAfter;
-  if (!word)
-    return null;
-  if (isDirective(word)) {
-    const directive = getDirective(word);
-    if (directive) {
-      let notes = "";
-      if (directive.name === "zen:for") {
-        notes = "- No runtime loop\n- Compiled into static DOM instructions\n- Creates scope: `item`, `index`";
-      } else {
-        notes = "- Compile-time directive\n- No runtime assumptions\n- Processed at build time";
-      }
-      return {
-        contents: {
-          kind: import_node.MarkupKind.Markdown,
-          value: `### ${directive.name}
-
-${directive.description}
-
-**Syntax:** \`${directive.syntax}\`
-
-**Notes:**
-${notes}
-
-**Example:**
-\`\`\`html
-${directive.example}
-\`\`\``
-        }
-      };
-    }
-  }
-  if (isRouterHook(word)) {
-    const hook2 = getRouterHook(word);
-    if (hook2) {
-      return {
-        contents: {
-          kind: import_node.MarkupKind.Markdown,
-          value: `### ${hook2.name}()
-
-**${hook2.owner}**
-
-${hook2.description}
-
-**Restrictions:** ${hook2.restrictions}
-
-**Returns:** \`${hook2.returns}\`
-
-**Signature:**
-\`\`\`typescript
-${hook2.signature}
-\`\`\``
-        }
-      };
-    }
-  }
-  const hook = LIFECYCLE_HOOKS.find((h) => h.name === word);
-  if (hook) {
-    return {
-      contents: {
-        kind: import_node.MarkupKind.Markdown,
-        value: `### ${hook.name}
-
-${hook.doc}
-
-\`\`\`typescript
-${hook.snippet.replace(/\$\d/g, "").replace("$0", "// ...")}
-\`\`\``
-      }
-    };
-  }
-  const platform = PLATFORM_PRIMITIVES.find((p) => p.name === word);
-  if (platform) {
-    return {
-      contents: {
-        kind: import_node.MarkupKind.Markdown,
-        value: `### ${platform.name}
-
-${platform.doc}`
-      }
-    };
-  }
-  if (word === "ZenLink") {
-    const script2 = getScriptContent(text);
-    const imports2 = parseZenithImports(script2);
-    if (hasRouterImport(imports2)) {
-      return {
-        contents: {
-          kind: import_node.MarkupKind.Markdown,
-          value: "### `<ZenLink>`\n\n**Router Component** (zenith/router)\n\nDeclarative navigation component for routes.\n\n**Props:**\n- `to` (string, required) - Route path\n- `preload` (boolean) - Prefetch on hover\n- `replace` (boolean) - Replace history entry\n- `class` (string) - CSS class\n- `activeClass` (string) - Class when active"
-        }
-      };
-    }
-  }
-  const script = getScriptContent(text);
-  const states = extractStates(script);
-  if (states.has(word)) {
-    return {
-      contents: {
-        kind: import_node.MarkupKind.Markdown,
-        value: `### state \`${word}\`
-
-**Type:** inferred
-
-**Initial value:** \`${states.get(word)}\``
-      }
-    };
-  }
-  const functions = extractFunctions(script);
-  const func = functions.find((f) => f.name === word);
-  if (func) {
-    return {
-      contents: {
-        kind: import_node.MarkupKind.Markdown,
-        value: `### ${func.isAsync ? "async " : ""}function \`${func.name}\`
-
-\`\`\`typescript
-${func.isAsync ? "async " : ""}function ${func.name}(${func.params})
-\`\`\``
-      }
-    };
-  }
-  const imports = parseZenithImports(script);
-  for (const imp of imports) {
-    if (imp.specifiers.includes(word)) {
-      const exportMeta = resolveExport(imp.module, word);
-      if (exportMeta) {
-        const resolved = resolveModule(imp.module);
-        const owner = resolved.kind === "plugin" ? "Plugin" : resolved.kind === "core" ? "Core" : "External";
-        return {
-          contents: {
-            kind: import_node.MarkupKind.Markdown,
-            value: `### ${word}
-
-**${owner}** (${imp.module})
-
-${exportMeta.description}
-
-**Signature:**
-\`\`\`typescript
-${exportMeta.signature || word}
-\`\`\``
-          }
-        };
-      }
-    }
-  }
-  const graph = getProjectGraph(params.textDocument.uri);
-  if (graph) {
-    const component = resolveComponent(graph, word);
-    if (component) {
-      return {
-        contents: {
-          kind: import_node.MarkupKind.Markdown,
-          value: `### ${component.type} \`<${component.name}>\`
-
-**File:** \`${component.filePath}\`
-
-**Props:** ${component.props.join(", ") || "none"}`
-        }
-      };
-    }
-  }
-  const htmlEl = HTML_ELEMENTS.find((e) => e.tag === word);
-  if (htmlEl) {
-    return {
-      contents: {
-        kind: import_node.MarkupKind.Markdown,
-        value: `### HTML \`<${htmlEl.tag}>\`
-
-${htmlEl.doc}`
-      }
-    };
-  }
-  return null;
 });
 var DEBOUNCE_MS = 150;
 var validationTimeouts = /* @__PURE__ */ new Map();
@@ -2193,7 +2428,7 @@ async function validateDocument(document) {
   validationIds.set(uri, id);
   const graph = getProjectGraph(uri);
   const filePath = uri.replace("file://", "");
-  const projectRoot = detectProjectRoot(path4.dirname(filePath), workspaceFolders);
+  const projectRoot = detectProjectRoot(path5.dirname(filePath), workspaceFolders);
   const diagnostics = await collectDiagnostics(document, graph, globalSettings, projectRoot);
   if (validationIds.get(uri) !== id)
     return;

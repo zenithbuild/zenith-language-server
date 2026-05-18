@@ -148,51 +148,93 @@ export const CORE_MODULES: Record<string, CoreModuleMetadata> = {
             }
         ]
     },
-    'zenith/router': {
-        module: 'zenith/router',
-        description: 'File-based SPA router for Zenith framework.',
+    '@zenithbuild/router': {
+        module: '@zenithbuild/router',
+        description: 'Shipped Zenith router package. Use `navigate()` for programmatic navigation and `<ZenLink>` (imported from `@zenithbuild/router/ZenLink.zen`) for anchor-based soft navigation.',
         exports: [
             {
-                name: 'ZenLink',
-                kind: 'component',
-                description: 'Declarative navigation component for routes.',
-                signature: '<ZenLink to="/path" preload?>{children}</ZenLink>'
-            },
-            {
-                name: 'useRoute',
+                name: 'createRouter',
                 kind: 'function',
-                description: 'Provides reactive access to the current route. Must be called at top-level script scope.',
-                signature: 'useRoute(): { path: string; params: Record<string, string>; query: Record<string, string> }'
-            },
-            {
-                name: 'useRouter',
-                kind: 'function',
-                description: 'Provides programmatic navigation methods.',
-                signature: 'useRouter(): { navigate: (to: string, options?: { replace?: boolean }) => void; back: () => void; forward: () => void }'
+                description: 'Bootstrap a router instance over a route table and a container element. Typically called once at app entry.',
+                signature: 'createRouter(config: { routes: Route[]; container: HTMLElement }): { start(): Promise<void>; destroy(): void }'
             },
             {
                 name: 'navigate',
                 kind: 'function',
-                description: 'Navigate to a route programmatically.',
-                signature: 'navigate(to: string, options?: { replace?: boolean }): void'
+                description: 'Navigate to a path. Performs the canonical Zenith soft-navigation flow (guard → load → render). Falls back to a hard navigation when the router cannot safely mirror server truth.',
+                signature: 'navigate(path: string): Promise<void>'
             },
             {
-                name: 'prefetch',
+                name: 'refreshCurrentRoute',
                 kind: 'function',
-                description: 'Prefetch a route for faster navigation.',
-                signature: 'prefetch(path: string): Promise<void>'
+                description: 'Re-resolve and re-render the current route. Useful after mutating server-side data that should be re-fetched by `load`.',
+                signature: 'refreshCurrentRoute(): Promise<void>'
             },
             {
-                name: 'isActive',
+                name: 'back',
                 kind: 'function',
-                description: 'Check if a route is currently active.',
-                signature: 'isActive(path: string, exact?: boolean): boolean'
+                description: 'Go back one entry in the navigation history.',
+                signature: 'back(): void'
             },
             {
-                name: 'getRoute',
+                name: 'forward',
                 kind: 'function',
-                description: 'Get the current route state.',
-                signature: 'getRoute(): { path: string; params: Record<string, string>; query: Record<string, string> }'
+                description: 'Go forward one entry in the navigation history.',
+                signature: 'forward(): void'
+            },
+            {
+                name: 'getCurrentPath',
+                kind: 'function',
+                description: 'Read the current route path. Returns the active URL pathname without query/hash.',
+                signature: 'getCurrentPath(): string'
+            },
+            {
+                name: 'onRouteChange',
+                kind: 'function',
+                description: 'Subscribe to navigation completion events. Returns a disposer.',
+                signature: 'onRouteChange(listener: (event: { path: string; routeId: string; params: Record<string, string> }) => void): () => void'
+            },
+            {
+                name: 'on',
+                kind: 'function',
+                description: 'Subscribe to a router lifecycle event (e.g. `route:beforeleave`, `route:enter`, `route:error`). Returns a disposer.',
+                signature: 'on(event: string, listener: (payload: unknown) => void): () => void'
+            },
+            {
+                name: 'off',
+                kind: 'function',
+                description: 'Remove a previously registered router lifecycle listener.',
+                signature: 'off(event: string, listener: (payload: unknown) => void): void'
+            },
+            {
+                name: 'setAdvisoryRoutePolicy',
+                kind: 'function',
+                description: 'Configure client-side advisory behavior (deny handling, login redirect, 403 path). Security remains server-authoritative; this only shapes navigation UX.',
+                signature: 'setAdvisoryRoutePolicy(policy: AdvisoryRoutePolicy): void'
+            },
+            {
+                name: 'zenNavigationShell',
+                kind: 'function',
+                description: 'Mount a navigation-shell controller that observes phase transitions (`idle` → `leaving` → `swapping` → `entering`) for chrome animations and skeletons.',
+                signature: 'zenNavigationShell(options?: NavigationShellOptions): NavigationShellController'
+            },
+            {
+                name: 'matchRoute',
+                kind: 'function',
+                description: 'Match a path against a static route table. Returns the matched route and extracted params, or `null`.',
+                signature: 'matchRoute(routes: Route[], path: string): { route: Route; params: Record<string, string> } | null'
+            }
+        ]
+    },
+    '@zenithbuild/router/ZenLink.zen': {
+        module: '@zenithbuild/router/ZenLink.zen',
+        description: 'Default-exports the canonical `<ZenLink>` anchor component. Renders a real `<a data-zen-link="true" href="...">` and opts into Zenith soft navigation. Imported as `import ZenLink from "@zenithbuild/router/ZenLink.zen"`.',
+        exports: [
+            {
+                name: 'ZenLink',
+                kind: 'component',
+                description: 'Default export: the `<ZenLink>` component. Props: `href` (required), `class`, `target`, `rel`, `id`, `title`, `ariaLabel`, `ariaCurrent`, `ariaDisabled`, `elementRef`, `onClick`, `onHoverIn`, `onHoverOut`, `onFocus`, `onBlur`. Children are inlined into the single implicit slot.',
+                signature: '<ZenLink href="/path">label</ZenLink>'
             }
         ]
     }

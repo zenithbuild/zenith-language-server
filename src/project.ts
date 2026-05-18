@@ -175,15 +175,19 @@ export function detectProjectRoot(startPath: string, workspaceFolders: string[] 
 }
 
 /**
- * Extract props from a .zen file
- * Infers props from usage patterns (Astro/Vue style)
+ * Extract props from a .zen file.
+ *
+ * Only `interface Props { … }` / `type Props = { … }` blocks declared inside
+ * the file's `<script lang="ts">` are honored. React-style heuristics such as
+ * inferring `children` or `className` from braced expressions are forbidden —
+ * Zenith has no `children` prop (children inline through `<slot />`) and no
+ * `className` (the canonical attribute is `class`).
  */
 function extractPropsFromFile(filePath: string): string[] {
     try {
         const content = fs.readFileSync(filePath, 'utf-8');
         const props: string[] = [];
 
-        // Look for Props interface/type
         const propsMatch = content.match(/(?:interface|type)\s+Props\s*[={]\s*\{([^}]+)\}/);
         if (propsMatch && propsMatch[1]) {
             const propNames = propsMatch[1].match(/([a-zA-Z_$][a-zA-Z0-9_$?]*)\s*[?:]?\s*:/g);
@@ -194,14 +198,6 @@ function extractPropsFromFile(filePath: string): string[] {
                         props.push(name);
                     }
                 }
-            }
-        }
-
-        // Look for common prop patterns in expressions
-        const usagePatterns = content.matchAll(/\{(title|lang|className|children|href|src|alt|id|name)\}/g);
-        for (const match of usagePatterns) {
-            if (match[1] && !props.includes(match[1])) {
-                props.push(match[1]);
             }
         }
 

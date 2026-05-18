@@ -28,9 +28,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { CORE_MODULES } from '../src/metadata/core-imports';
+import {
+    HTML_ATTRIBUTES,
+    HTML_ELEMENTS,
+    LIFECYCLE_HOOKS,
+    PLATFORM_PRIMITIVES
+} from '../src/metadata/completion-metadata';
+import { ROUTER_FUNCTIONS, ZENLINK_PROPS } from '../src/router';
 
 const ROOT = path.resolve(__dirname, '..');
-const SERVER_SOURCE_PATH = path.join(ROOT, 'src', 'server.ts');
+const COMPLETION_METADATA_PATH = path.join(ROOT, 'src', 'metadata', 'completion-metadata.ts');
+const COMPLETION_SOURCE_PATH = path.join(ROOT, 'src', 'completion.ts');
 const README_PATH = path.join(ROOT, 'README.md');
 
 const STALE_PATTERNS: Array<{ label: string; regex: RegExp }> = [
@@ -49,7 +57,17 @@ const STALE_PATTERNS: Array<{ label: string; regex: RegExp }> = [
     { label: 'Legacy `zenOnDestroy` name', regex: /\bzenOnDestroy\b/ },
     { label: 'Legacy `zenOnUpdate` name', regex: /\bzenOnUpdate\b/ },
     { label: 'Legacy `zenRef` name', regex: /\bzenRef\b/ },
-    { label: 'Phantom `useFetch(` API', regex: /\buseFetch\s*\(/ }
+    { label: 'Phantom `useFetch(` API', regex: /\buseFetch\s*\(/ },
+    { label: 'React `children:` prop', regex: /\bchildren\s*:/ },
+    { label: 'React `ReactNode` type', regex: /\bReactNode\b/ },
+    { label: 'React `PropsWithChildren` helper', regex: /\bPropsWithChildren\b/ },
+    { label: 'React `className=` attribute', regex: /\bclassName\s*=/ },
+    { label: 'Legacy router hook `useRoute(`', regex: /\buseRoute\s*\(/ },
+    { label: 'Legacy router hook `useRouter(`', regex: /\buseRouter\s*\(/ },
+    { label: 'Stale router function `prefetch(`', regex: /\bprefetch\s*\(/ },
+    { label: 'Stale router function `isActive(`', regex: /\bisActive\s*\(/ },
+    { label: 'Stale router function `getRoute(`', regex: /\bgetRoute\s*\(/ },
+    { label: 'Legacy router module id `zenith/router`', regex: /['"]zenith\/router['"]/ }
 ];
 
 function assertNoStalePatterns(label: string, text: string): void {
@@ -106,9 +124,9 @@ function extractFieldStrings(block: string, field: string): string[] {
     return strings;
 }
 
-const serverSource = fs.readFileSync(SERVER_SOURCE_PATH, 'utf8');
-const lifecycleBlock = extractBlock(serverSource, /const LIFECYCLE_HOOKS\s*=\s*\[/);
-const platformBlock = extractBlock(serverSource, /const PLATFORM_PRIMITIVES\s*=\s*\[/);
+const completionMetadataSource = fs.readFileSync(COMPLETION_METADATA_PATH, 'utf8');
+const lifecycleBlock = extractBlock(completionMetadataSource, /const LIFECYCLE_HOOKS\s*:[^\n]*=\s*\[/);
+const platformBlock = extractBlock(completionMetadataSource, /const PLATFORM_PRIMITIVES\s*:[^\n]*=\s*\[/);
 
 function assertCompletionEntriesAreClean(label: string, block: string): void {
     for (const snippet of extractFieldStrings(block, 'snippet')) {
@@ -217,6 +235,149 @@ test('all core module export names/signatures are free of stale framework syntax
             );
         }
     }
+});
+
+// ---------------------------------------------------------------------------
+// Router + ZenLink truth: canonical `@zenithbuild/router` surface only
+// ---------------------------------------------------------------------------
+
+test('CORE_MODULES exposes @zenithbuild/router and ZenLink subpath; no legacy zenith/router', () => {
+    assert.ok(
+        CORE_MODULES['@zenithbuild/router'],
+        '@zenithbuild/router metadata must exist'
+    );
+    assert.ok(
+        CORE_MODULES['@zenithbuild/router/ZenLink.zen'],
+        '@zenithbuild/router/ZenLink.zen metadata must exist'
+    );
+    assert.equal(
+        CORE_MODULES['zenith/router'],
+        undefined,
+        'legacy `zenith/router` virtual module must not be re-introduced'
+    );
+});
+
+test('@zenithbuild/router exports canonical navigation surface, no hook-style API', () => {
+    const router = CORE_MODULES['@zenithbuild/router'];
+    const names = router.exports.map((e) => e.name);
+    for (const expected of [
+        'createRouter', 'navigate', 'refreshCurrentRoute', 'back', 'forward',
+        'getCurrentPath', 'onRouteChange', 'on', 'off',
+        'setAdvisoryRoutePolicy', 'zenNavigationShell', 'matchRoute'
+    ]) {
+        assert.ok(names.includes(expected), `router metadata must surface \`${expected}\``);
+    }
+    for (const stale of ['useRoute', 'useRouter', 'prefetch', 'isActive', 'getRoute', 'go']) {
+        assert.ok(
+            !names.includes(stale),
+            `router metadata must NOT surface stale \`${stale}\``
+        );
+    }
+});
+
+test('ROUTER_FUNCTIONS catalog matches canonical router surface', () => {
+    const names = ROUTER_FUNCTIONS.map((fn) => fn.name);
+    assert.ok(names.includes('navigate'), 'must surface `navigate`');
+    assert.ok(names.includes('createRouter'), 'must surface `createRouter`');
+    assert.ok(names.includes('getCurrentPath'), 'must surface `getCurrentPath`');
+    for (const stale of ['useRoute', 'useRouter', 'prefetch', 'isActive', 'getRoute', 'go']) {
+        assert.ok(
+            !names.includes(stale),
+            `ROUTER_FUNCTIONS must NOT surface stale \`${stale}\``
+        );
+    }
+    for (const fn of ROUTER_FUNCTIONS) {
+        assertNoStalePatterns(
+            `ROUTER_FUNCTIONS entry ${fn.name} (signature)`,
+            `${fn.name}\n${fn.signature}`
+        );
+    }
+});
+
+test('ZENLINK_PROPS catalog matches canonical Props from ZenLink.zen', () => {
+    const names = ZENLINK_PROPS.map((p) => p.name);
+    assert.ok(names.includes('href'), 'ZenLink must surface `href` prop');
+    const required = ZENLINK_PROPS.filter((p) => p.required).map((p) => p.name);
+    assert.deepEqual(required, ['href'], 'only `href` is required on ZenLink');
+    for (const stale of ['to', 'preload', 'replace', 'activeClass', 'children']) {
+        assert.ok(
+            !names.includes(stale),
+            `ZenLink must NOT surface stale \`${stale}\``
+        );
+    }
+    for (const prop of ZENLINK_PROPS) {
+        assertNoStalePatterns(`ZenLink prop ${prop.name}`, `${prop.name}\n${prop.type}`);
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Editor-owned catalogs: no React-style children/className suggestions
+// ---------------------------------------------------------------------------
+
+test('HTML_ATTRIBUTES catalog does not surface React-style attributes', () => {
+    const attrs = new Set<string>(HTML_ATTRIBUTES);
+    for (const stale of ['className', 'children', 'htmlFor', 'tabIndex']) {
+        assert.ok(
+            !attrs.has(stale),
+            `HTML_ATTRIBUTES must not surface React-style "${stale}"`
+        );
+    }
+});
+
+test('HTML_ELEMENTS slot doc teaches the implicit slot, not children', () => {
+    const slot = HTML_ELEMENTS.find((el) => el.tag === 'slot');
+    assert.ok(slot, 'slot HTML element entry must exist');
+    assert.match(
+        slot!.doc,
+        /implicit slot/i,
+        'slot doc must explain compile-time implicit slot semantics'
+    );
+});
+
+test('completion.ts does not infer React-style children/className from braced expressions', () => {
+    const source = fs.readFileSync(COMPLETION_SOURCE_PATH, 'utf8');
+    assert.doesNotMatch(
+        source,
+        /usagePatterns.*\bchildren\b/,
+        'completion provider must not list `children` in any usage-pattern inference'
+    );
+    assert.doesNotMatch(
+        source,
+        /usagePatterns.*\bclassName\b/,
+        'completion provider must not list `className` in any usage-pattern inference'
+    );
+});
+
+test('project.ts only honors `interface Props { … }` for prop inference', () => {
+    const projectSource = fs.readFileSync(path.join(ROOT, 'src', 'project.ts'), 'utf8');
+    // Strip line and block comments so doc prose explaining forbidden patterns
+    // is not flagged as a stale teaching surface.
+    const codeOnly = projectSource
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split('\n')
+        .map((line) => line.replace(/\/\/.*$/, ''))
+        .join('\n');
+    assert.doesNotMatch(
+        codeOnly,
+        /\bclassName\b/,
+        'project.ts code must not reference `className` outside doc comments'
+    );
+    assert.doesNotMatch(
+        codeOnly,
+        /matchAll\([^)]*children[^)]*\)/,
+        'project.ts must not infer `children` from braced expressions'
+    );
+});
+
+test('catalog-driven completion entries import from canonical metadata module', () => {
+    assert.ok(
+        LIFECYCLE_HOOKS.some((entry) => entry.name === 'state'),
+        'LIFECYCLE_HOOKS must surface `state`'
+    );
+    assert.ok(
+        PLATFORM_PRIMITIVES.some((entry) => entry.name === 'signal'),
+        'PLATFORM_PRIMITIVES must surface `signal`'
+    );
 });
 
 // ---------------------------------------------------------------------------

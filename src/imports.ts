@@ -1,9 +1,11 @@
 /**
  * Import Resolution & Awareness
- * 
- * Handles recognition and resolution of Zenith imports.
- * - zenith/* imports are core modules (virtual, symbolic resolution)
- * - zenith:* imports are plugin modules (soft diagnostics if missing)
+ *
+ * Tracks Zenith-relevant imports for completion and hover metadata:
+ * - `zenith` / `zenith/*`      core runtime primitives (virtual symbols)
+ * - `zenith:*`                  CLI-provided virtual modules (server-contract, plugins)
+ * - `@zenithbuild/router`       shipped router package (navigate, createRouter, …)
+ * - `@zenithbuild/router/...`   router subpaths such as `ZenLink.zen`
  */
 
 import { 
@@ -40,29 +42,46 @@ export interface ResolvedImport {
 }
 
 /**
+ * Determine whether a module specifier is a Zenith-tracked module the LSP
+ * should provide hover/completion metadata for. Recognised shapes:
+ *
+ * - `zenith` / `zenith/<sub>`               core virtual modules
+ * - `zenith:<sub>`                          CLI virtual modules (server-contract, plugins)
+ * - `@zenithbuild/router`                   shipped router package
+ * - `@zenithbuild/router/<sub>`             router subpaths (e.g. `ZenLink.zen`)
+ */
+export function isZenithTrackedModule(moduleName: string): boolean {
+    if (moduleName === 'zenith') return true;
+    if (moduleName.startsWith('zenith/')) return true;
+    if (moduleName.startsWith('zenith:')) return true;
+    if (moduleName === '@zenithbuild/router') return true;
+    if (moduleName.startsWith('@zenithbuild/router/')) return true;
+    return false;
+}
+
+/**
  * Parse Zenith imports from script content
  */
 export function parseZenithImports(script: string): ParsedImport[] {
     const imports: ParsedImport[] = [];
     const lines = script.split('\n');
-    
+
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        
+
         // Match: import { x, y } from 'module' or import type { x } from 'module'
         const importMatch = line.match(/import\s+(type\s+)?(?:\{([^}]+)\}|(\*\s+as\s+\w+)|(\w+))\s+from\s+['"]([^'"]+)['"]/);
-        
+
         if (importMatch) {
             const isType = !!importMatch[1];
             const namedImports = importMatch[2];
             const namespaceImport = importMatch[3];
             const defaultImport = importMatch[4];
             const moduleName = importMatch[5];
-            
-            // Only track zenith imports
-            if (moduleName.startsWith('zenith') || moduleName.startsWith('zenith:')) {
+
+            if (isZenithTrackedModule(moduleName)) {
                 const specifiers: string[] = [];
-                
+
                 if (namedImports) {
                     // Parse named imports: { a, b as c, d }
                     const parts = namedImports.split(',');
@@ -75,7 +94,7 @@ export function parseZenithImports(script: string): ParsedImport[] {
                 } else if (defaultImport) {
                     specifiers.push(defaultImport);
                 }
-                
+
                 imports.push({
                     module: moduleName,
                     specifiers,
@@ -84,12 +103,12 @@ export function parseZenithImports(script: string): ParsedImport[] {
                 });
             }
         }
-        
+
         // Match: import 'module' (side-effect import)
         const sideEffectMatch = line.match(/import\s+['"]([^'"]+)['"]/);
         if (sideEffectMatch && !importMatch) {
             const moduleName = sideEffectMatch[1];
-            if (moduleName.startsWith('zenith') || moduleName.startsWith('zenith:')) {
+            if (isZenithTrackedModule(moduleName)) {
                 imports.push({
                     module: moduleName,
                     specifiers: [],
@@ -99,7 +118,7 @@ export function parseZenithImports(script: string): ParsedImport[] {
             }
         }
     }
-    
+
     return imports;
 }
 
@@ -148,10 +167,29 @@ export function resolveExport(moduleName: string, exportName: string): ModuleExp
 }
 
 /**
- * Check if router is imported in the given imports
+ * Check if the shipped Zenith router package is imported.
+ *
+ * Canonical module id is `@zenithbuild/router`. The legacy virtual
+ * `zenith/router` is still tolerated for older sources but is not the
+ * shipped surface.
  */
 export function hasRouterImport(imports: ParsedImport[]): boolean {
-    return imports.some(i => i.module === 'zenith/router');
+    return imports.some((i) =>
+        i.module === '@zenithbuild/router' ||
+        i.module.startsWith('@zenithbuild/router/') ||
+        i.module === 'zenith/router'
+    );
+}
+
+/**
+ * Check if `ZenLink` is imported from the shipped router subpath.
+ */
+export function hasZenLinkImport(imports: ParsedImport[]): boolean {
+    return imports.some(
+        (i) =>
+            i.module === '@zenithbuild/router/ZenLink.zen' ||
+            (i.module === '@zenithbuild/router' && i.specifiers.includes('ZenLink'))
+    );
 }
 
 /**

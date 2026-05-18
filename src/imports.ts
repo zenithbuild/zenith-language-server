@@ -176,8 +176,7 @@ export function resolveExport(moduleName: string, exportName: string): ModuleExp
 export function hasRouterImport(imports: ParsedImport[]): boolean {
     return imports.some((i) =>
         i.module === '@zenithbuild/router' ||
-        i.module.startsWith('@zenithbuild/router/') ||
-        i.module === 'zenith/router'
+        i.module.startsWith('@zenithbuild/router/')
     );
 }
 

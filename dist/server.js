@@ -304,6 +304,60 @@ var LIFECYCLE_HOOKS = [
 ];
 var PLATFORM_PRIMITIVES = [
   {
+    name: "signal",
+    doc: "Create a reactive signal with explicit `.get()` / `.set(value)` / `.subscribe(fn)` methods.\n\nThere is no `.value` property \u2014 that pattern belongs to other frameworks.",
+    snippet: "const ${1:count} = signal(${2:0});\nfunction ${3:increment}() {\n	${1:count}.set(${1:count}.get() + 1);\n}\n$0",
+    kind: import_node.CompletionItemKind.Function
+  },
+  {
+    name: "state",
+    doc: "**Runtime** plain-object store imported from `zenith`: `.get()` / `.set(patch | updater)` / `.subscribe`. Distinct from declarative `state name = initial` (keyword completion above).",
+    snippet: "state(${1:{ count: 0 }})",
+    kind: import_node.CompletionItemKind.Function
+  },
+  {
+    name: "ref",
+    doc: "Create a Zenith ref for a DOM node (or stable value). Access via `.current`. Do not use `.value`.",
+    snippet: "ref<${1:HTMLElement}>()",
+    kind: import_node.CompletionItemKind.Function
+  },
+  {
+    name: "zeneffect",
+    doc: "Low-level effect primitive: auto-tracked callback or explicit `(dependencies[], effect)`. Prefer `zenEffect` in `.zen` unless you need explicit dependency lists.",
+    snippet: "zeneffect((ctx) => {\n	$0\n})",
+    kind: import_node.CompletionItemKind.Function
+  },
+  {
+    name: "effect",
+    doc: "Alias of `zeneffect` (bundled runtime export). Prefer `zenEffect` / `zeneffect` in new code.",
+    snippet: "effect((ctx) => {\n	$0\n})",
+    kind: import_node.CompletionItemKind.Function
+  },
+  {
+    name: "mount",
+    doc: "Alias of `zenMount` (bundled runtime export). Prefer `zenMount` in `.zen` scripts.",
+    snippet: "mount((ctx) => {\n	$0\n})",
+    kind: import_node.CompletionItemKind.Function
+  },
+  {
+    name: "zenPresence",
+    doc: "Ref-owned presence controller for enter/exit transitions. Call `.mount()` inside `zenMount`, drive `.setPresent(...)` from reactive state.",
+    snippet: "zenPresence(${1:ref})$0",
+    kind: import_node.CompletionItemKind.Function
+  },
+  {
+    name: "presence",
+    doc: "Alias of `zenPresence`.",
+    snippet: "presence(${1:ref})$0",
+    kind: import_node.CompletionItemKind.Function
+  },
+  {
+    name: "hydrate",
+    doc: "Client bootstrap for hydrating a compiled Zenith payload. Advanced integration surface used outside typical `.zen` components.",
+    snippet: "hydrate($0)",
+    kind: import_node.CompletionItemKind.Function
+  },
+  {
     name: "zenWindow",
     doc: "SSR-safe `window` access. Returns `null` outside the browser. Use instead of the global `window`.",
     snippet: "zenWindow()",
@@ -331,18 +385,6 @@ var PLATFORM_PRIMITIVES = [
     name: "collectRefs",
     doc: "Collect multiple refs into a deterministic array of attached elements. Use instead of `querySelectorAll` for multi-node operations.",
     snippet: "collectRefs(${1:refA}, ${2:refB})",
-    kind: import_node.CompletionItemKind.Function
-  },
-  {
-    name: "signal",
-    doc: "Create a reactive signal with explicit `.get()` / `.set(value)` / `.subscribe(fn)` methods.\n\nThere is no `.value` property \u2014 that pattern belongs to other frameworks.",
-    snippet: "const ${1:count} = signal(${2:0});\nfunction ${3:increment}() {\n	${1:count}.set(${1:count}.get() + 1);\n}\n$0",
-    kind: import_node.CompletionItemKind.Function
-  },
-  {
-    name: "ref",
-    doc: "Create a Zenith ref for a DOM node (or stable value). Access via `.current`. Do not use `.value`.",
-    snippet: "ref<${1:HTMLElement}>()",
     kind: import_node.CompletionItemKind.Function
   }
 ];
@@ -413,6 +455,7 @@ var HTML_ATTRIBUTES = [
   "hidden"
 ];
 var DOM_EVENTS = [
+  // Prefer pointer events where applicable (Zenith agent contract).
   "click",
   "change",
   "input",
@@ -420,12 +463,23 @@ var DOM_EVENTS = [
   "keydown",
   "keyup",
   "keypress",
+  "pointerdown",
+  "pointerup",
+  "pointermove",
+  "pointercancel",
+  "pointerenter",
+  "pointerleave",
   "focus",
   "blur",
   "mouseover",
   "mouseout",
   "mouseenter",
-  "mouseleave"
+  "mouseleave",
+  // Compiler-supported aliases (normalized at compile time).
+  "hoverin",
+  "hoverout",
+  "doubleclick",
+  "esc"
 ];
 
 // src/metadata/core-imports.ts
@@ -493,6 +547,42 @@ var CORE_MODULES = {
         kind: "function",
         description: "Collect multiple Zenith refs into a deterministic array of attached elements. Use instead of `querySelectorAll` for multi-node operations.",
         signature: "collectRefs<T extends Element>(...refs: { current: T | null }[]): T[]"
+      },
+      {
+        name: "zeneffect",
+        kind: "function",
+        description: "Low-level effect primitive from `zenith`: auto-tracked `(effect)` or explicit `(dependencies[], effect)`. Prefer `zenEffect` unless dependency lists are required.",
+        signature: "zeneffect(effect: (ctx: EffectContext) => void | (() => void), options?: EffectOptions): void\nzeneffect<T>(dependencies: unknown[], effect: (ctx: EffectContext) => void | (() => void)): void"
+      },
+      {
+        name: "effect",
+        kind: "function",
+        description: "Alias of `zeneffect` (bundled runtime export).",
+        signature: "effect: typeof zeneffect"
+      },
+      {
+        name: "mount",
+        kind: "function",
+        description: "Alias of `zenMount` (bundled runtime export).",
+        signature: "mount: typeof zenMount"
+      },
+      {
+        name: "zenPresence",
+        kind: "function",
+        description: "Ref-owned presence controller for enter/exit transitions. Typically call `.mount()` inside `zenMount` and drive `.setPresent(...)` from reactive state.",
+        signature: "zenPresence(ref: { current?: Element | null }, options?: { timeoutMs?: number; onPhaseChange?: (phase: string, ctx: unknown) => void } | null): { mount(): () => void; destroy(): void; getPhase(): string; setPresent(nextPresent: boolean): void }"
+      },
+      {
+        name: "presence",
+        kind: "function",
+        description: "Alias of `zenPresence`.",
+        signature: "presence: typeof zenPresence"
+      },
+      {
+        name: "hydrate",
+        kind: "function",
+        description: "Client bootstrap entry that hydrates compiled Zenith payload output. Advanced runtime integration surface.",
+        signature: "hydrate(payload: unknown): void"
       }
     ]
   },
@@ -826,7 +916,7 @@ function resolveExport(moduleName, exportName) {
 }
 function hasRouterImport(imports) {
   return imports.some(
-    (i) => i.module === "@zenithbuild/router" || i.module.startsWith("@zenithbuild/router/") || i.module === "zenith/router"
+    (i) => i.module === "@zenithbuild/router" || i.module.startsWith("@zenithbuild/router/")
   );
 }
 function hasZenLinkImport(imports) {
@@ -851,6 +941,15 @@ function getAllModules() {
     });
   }
   return modules;
+}
+function getModuleExports(moduleName) {
+  const coreModule = getCoreModule(moduleName);
+  if (coreModule)
+    return coreModule.exports;
+  const pluginModule = getPluginModule(moduleName);
+  if (pluginModule)
+    return pluginModule.exports;
+  return [];
 }
 
 // src/router.ts
@@ -1157,7 +1256,10 @@ function getPositionContext(text, offset) {
     }
   }
   const wordMatch = before.match(/[a-zA-Z_$:@][a-zA-Z0-9_$:-]*$/);
-  const currentWord = wordMatch ? wordMatch[0] : "";
+  let currentWord = wordMatch ? wordMatch[0] : "";
+  if (inTag && !inAttributeValue && currentWord === ":" && /\bon:$/.test(before)) {
+    currentWord = "on:";
+  }
   const afterAt = before.endsWith("@") || currentWord.startsWith("@");
   const afterColon = before.endsWith(":") || currentWord.startsWith(":") && !currentWord.startsWith(":");
   const memberAccess = inScript || inExpression ? parseMemberAccess(before) : null;
@@ -1295,7 +1397,7 @@ function memberCompletionItems(kind, memberPrefix) {
 
 // src/completion-script.ts
 var import_node3 = require("vscode-languageserver/node");
-function buildScriptCompletions(ctx, lineBefore, deps) {
+function buildScriptCompletions(ctx, lineBefore, lineAfter, deps) {
   if (ctx.memberAccess) {
     return memberAccessCompletions(ctx, deps);
   }
@@ -1308,7 +1410,8 @@ function buildScriptCompletions(ctx, lineBefore, deps) {
   }
   addDeclaredFunctions(completions, ctx, deps.functions);
   addDeclarativeStates(completions, ctx, deps.states);
-  addImportPathModules(completions, lineBefore);
+  addImportSpecifierCompletions(completions, ctx, lineBefore, lineAfter, deps.inServerScript);
+  addImportPathModules(completions, lineBefore, deps.inServerScript);
   return completions;
 }
 function memberAccessCompletions(ctx, deps) {
@@ -1438,12 +1541,59 @@ function addDeclarativeStates(completions, ctx, states) {
     });
   }
 }
-function addImportPathModules(completions, lineBefore) {
+function addImportSpecifierCompletions(completions, ctx, lineBefore, lineAfter, inServerScript) {
+  const specifierMatch = lineBefore.match(/import\s+(?:type\s+)?\{([^}]*)$/);
+  if (!specifierMatch) {
+    return;
+  }
+  const existing = new Set(
+    specifierMatch[1].split(",").map((entry) => entry.trim().split(/\s+as\s+/)[0]?.trim()).filter(Boolean)
+  );
+  const moduleMatch = lineAfter.match(/^\s*\}\s+from\s+['"]([^'"]+)['"]/);
+  const activeModule = moduleMatch ? moduleMatch[1] : null;
+  if (!activeModule) {
+    return;
+  }
+  if (activeModule === "zenith:server-contract" && !inServerScript) {
+    return;
+  }
+  if (!getAllModules().some((mod) => mod.module === activeModule)) {
+    return;
+  }
+  for (const exp of getModuleExports(activeModule)) {
+    if (existing.has(exp.name)) {
+      continue;
+    }
+    if (!matchesPrefix(exp.name, ctx.currentWord)) {
+      continue;
+    }
+    completions.push({
+      label: exp.name,
+      kind: completionKindForExport(exp.kind),
+      detail: activeModule,
+      documentation: {
+        kind: import_node3.MarkupKind.Markdown,
+        value: exp.signature ? `${exp.description}
+
+**Signature:**
+\`\`\`typescript
+${exp.signature}
+\`\`\`` : exp.description
+      },
+      insertText: exp.name,
+      sortText: `0_${exp.name}`
+    });
+  }
+}
+function addImportPathModules(completions, lineBefore, inServerScript) {
   const isImportPath = /from\s+['"][^'"]*$/.test(lineBefore) || /import\s+['"][^'"]*$/.test(lineBefore);
   if (!isImportPath) {
     return;
   }
   for (const mod of getAllModules()) {
+    if (mod.module === "zenith:server-contract" && !inServerScript) {
+      continue;
+    }
     completions.push({
       label: mod.module,
       kind: import_node3.CompletionItemKind.Module,
@@ -1451,6 +1601,18 @@ function addImportPathModules(completions, lineBefore) {
       documentation: mod.description,
       insertText: mod.module
     });
+  }
+}
+function completionKindForExport(kind) {
+  switch (kind) {
+    case "function":
+      return import_node3.CompletionItemKind.Function;
+    case "component":
+      return import_node3.CompletionItemKind.Class;
+    case "type":
+      return import_node3.CompletionItemKind.Interface;
+    default:
+      return import_node3.CompletionItemKind.Variable;
   }
 }
 function matchesPrefix(name, prefix) {
@@ -1469,14 +1631,17 @@ function provideCompletions(text, offset, graph) {
   const zenLinkAvailable = hasZenLinkImport(imports) || routerEnabled;
   const loopVariables = extractLoopVariables(text);
   const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
+  const lineEnd = text.indexOf("\n", offset) === -1 ? text.length : text.indexOf("\n", offset);
   const lineBefore = text.substring(lineStart, offset);
+  const lineAfter = text.substring(offset, lineEnd);
   const completions = [];
   if (ctx.inScript) {
-    const scriptItems = buildScriptCompletions(ctx, lineBefore, {
+    const scriptItems = buildScriptCompletions(ctx, lineBefore, lineAfter, {
       states,
       functions,
       bindings,
-      routerEnabled
+      routerEnabled,
+      inServerScript: isServerScriptContext(text, offset)
     });
     for (const item of scriptItems) {
       completions.push(item);
@@ -1535,6 +1700,11 @@ function addExpressionContextCompletions(completions, _ctx, states, functions, l
   }
 }
 function addTemplateContextCompletions(completions, ctx, lineBefore, graph, zenLinkAvailable) {
+  const closingPrefix = closingTagNamePrefix(lineBefore);
+  if (closingPrefix !== null) {
+    addClosingTagCompletions(completions, closingPrefix, graph, zenLinkAvailable);
+    return;
+  }
   const isAfterOpenBracket = !!lineBefore.match(/<\s*$/);
   const isTypingTag = ctx.currentWord.length > 0 && !ctx.inTag;
   if (graph && (isAfterOpenBracket || isTypingTag && /^[A-Z]/.test(ctx.currentWord))) {
@@ -1604,12 +1774,46 @@ Props: ${info.props.join(", ") || "none"}`
           kind: import_node4.CompletionItemKind.Property,
           detail: "HTML",
           documentation: el.doc,
-          insertText: isAfterOpenBracket ? snippet : `<${snippet}>`,
+          insertText: isAfterOpenBracket ? snippet : `<${snippet}`,
           insertTextFormat: import_node4.InsertTextFormat.Snippet,
           sortText: `1_${el.tag}`
         });
       }
     }
+  }
+}
+function closingTagNamePrefix(lineBefore) {
+  const match = lineBefore.match(/<\/([A-Za-z0-9-]*)$/);
+  return match ? match[1] : null;
+}
+function addClosingTagCompletions(completions, prefix, graph, zenLinkAvailable) {
+  const tagNames = /* @__PURE__ */ new Set();
+  for (const el of HTML_ELEMENTS) {
+    if (!el.selfClosing) {
+      tagNames.add(el.tag);
+    }
+  }
+  if (graph) {
+    for (const name of graph.layouts.keys())
+      tagNames.add(name);
+    for (const name of graph.components.keys())
+      tagNames.add(name);
+  }
+  if (zenLinkAvailable) {
+    tagNames.add("ZenLink");
+  }
+  const lowerPrefix = prefix.toLowerCase();
+  for (const name of tagNames) {
+    if (lowerPrefix && !name.toLowerCase().startsWith(lowerPrefix)) {
+      continue;
+    }
+    completions.push({
+      label: `/${name}`,
+      kind: import_node4.CompletionItemKind.Property,
+      detail: "closing tag",
+      insertText: `${name}>`,
+      sortText: `0_/${name}`
+    });
   }
 }
 function addTagContextCompletions(completions, ctx, graph, zenLinkAvailable) {
@@ -1721,6 +1925,21 @@ function addAttributeValueCompletions(completions, lineBefore, functions) {
     }
   }
 }
+function isServerScriptContext(text, offset) {
+  const before = text.slice(0, offset);
+  const openScript = [...before.matchAll(/<script\b([^>]*)>/gi)];
+  if (openScript.length === 0) {
+    return false;
+  }
+  const lastOpen = openScript.at(-1);
+  const lastOpenIndex = lastOpen.index ?? -1;
+  const lastCloseIndex = before.lastIndexOf("</script>");
+  if (lastOpenIndex < lastCloseIndex) {
+    return false;
+  }
+  const attrs = lastOpen[1] ?? "";
+  return /\bserver\b/i.test(attrs);
+}
 
 // src/hover.ts
 var import_node5 = require("vscode-languageserver/node");
@@ -1830,15 +2049,16 @@ ${hook.snippet.replace(/\$\d/g, "").replace("$0", "// ...")}
   };
 }
 function hoverPlatform(word) {
-  const platform = PLATFORM_PRIMITIVES.find((p) => p.name === word);
-  if (!platform)
+  const matches = PLATFORM_PRIMITIVES.filter((p) => p.name === word);
+  if (matches.length === 0)
     return null;
+  const body = matches.map((p) => `### ${p.name}
+
+${p.doc}`).join("\n\n---\n\n");
   return {
     contents: {
       kind: import_node5.MarkupKind.Markdown,
-      value: `### ${platform.name}
-
-${platform.doc}`
+      value: body
     }
   };
 }

@@ -69,16 +69,19 @@ export function provideCompletions(
     const loopVariables = extractLoopVariables(text);
 
     const lineStart = text.lastIndexOf('\n', offset - 1) + 1;
+    const lineEnd = text.indexOf('\n', offset) === -1 ? text.length : text.indexOf('\n', offset);
     const lineBefore = text.substring(lineStart, offset);
+    const lineAfter = text.substring(offset, lineEnd);
 
     const completions: CompletionItem[] = [];
 
     if (ctx.inScript) {
-        const scriptItems = buildScriptCompletions(ctx, lineBefore, {
+        const scriptItems = buildScriptCompletions(ctx, lineBefore, lineAfter, {
             states,
             functions,
             bindings,
-            routerEnabled
+            routerEnabled,
+            inServerScript: isServerScriptContext(text, offset)
         });
         for (const item of scriptItems) {
             completions.push(item);
@@ -158,6 +161,12 @@ function addTemplateContextCompletions(
     graph: ProjectGraph | null,
     zenLinkAvailable: boolean
 ) {
+    const closingPrefix = closingTagNamePrefix(lineBefore);
+    if (closingPrefix !== null) {
+        addClosingTagCompletions(completions, closingPrefix, graph, zenLinkAvailable);
+        return;
+    }
+
     const isAfterOpenBracket = !!lineBefore.match(/<\s*$/);
     const isTypingTag = ctx.currentWord.length > 0 && !ctx.inTag;
 
@@ -232,12 +241,52 @@ function addTemplateContextCompletions(
                     kind: CompletionItemKind.Property,
                     detail: 'HTML',
                     documentation: el.doc,
-                    insertText: isAfterOpenBracket ? snippet : `<${snippet}>`,
+                    insertText: isAfterOpenBracket ? snippet : `<${snippet}`,
                     insertTextFormat: InsertTextFormat.Snippet,
                     sortText: `1_${el.tag}`
                 });
             }
         }
+    }
+}
+
+function closingTagNamePrefix(lineBefore: string): string | null {
+    const match = lineBefore.match(/<\/([A-Za-z0-9-]*)$/);
+    return match ? match[1] : null;
+}
+
+function addClosingTagCompletions(
+    completions: CompletionItem[],
+    prefix: string,
+    graph: ProjectGraph | null,
+    zenLinkAvailable: boolean
+): void {
+    const tagNames = new Set<string>();
+    for (const el of HTML_ELEMENTS) {
+        if (!el.selfClosing) {
+            tagNames.add(el.tag);
+        }
+    }
+    if (graph) {
+        for (const name of graph.layouts.keys()) tagNames.add(name);
+        for (const name of graph.components.keys()) tagNames.add(name);
+    }
+    if (zenLinkAvailable) {
+        tagNames.add('ZenLink');
+    }
+
+    const lowerPrefix = prefix.toLowerCase();
+    for (const name of tagNames) {
+        if (lowerPrefix && !name.toLowerCase().startsWith(lowerPrefix)) {
+            continue;
+        }
+        completions.push({
+            label: `/${name}`,
+            kind: CompletionItemKind.Property,
+            detail: 'closing tag',
+            insertText: `${name}>`,
+            sortText: `0_/${name}`
+        });
     }
 }
 
@@ -367,6 +416,22 @@ function addAttributeValueCompletions(
             });
         }
     }
+}
+
+function isServerScriptContext(text: string, offset: number): boolean {
+    const before = text.slice(0, offset);
+    const openScript = [...before.matchAll(/<script\b([^>]*)>/gi)];
+    if (openScript.length === 0) {
+        return false;
+    }
+    const lastOpen = openScript.at(-1)!;
+    const lastOpenIndex = lastOpen.index ?? -1;
+    const lastCloseIndex = before.lastIndexOf('</script>');
+    if (lastOpenIndex < lastCloseIndex) {
+        return false;
+    }
+    const attrs = lastOpen[1] ?? '';
+    return /\bserver\b/i.test(attrs);
 }
 
 void DIRECTIVES;

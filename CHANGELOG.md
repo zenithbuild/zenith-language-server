@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced VS Code-only regex snippet transform on the `signal` completion
   (`${1/(.*)/${1:/capitalize}/}`) with portable LSP tab stops so Neovim
   `vim.snippet` / blink.cmp can expand the counter example without parse errors.
+- Hardened template/tag completion insertion so HTML snippets no longer append an
+  extra `>` in typing-tag flows, and added explicit `</` closing-tag completions
+  that safely complete to a single closing delimiter.
+- Import path completion now keeps `zenith:server-contract` behind
+  `<script server lang="ts">` context instead of suggesting it in every script.
+- **Hover:** duplicate `PLATFORM_PRIMITIVES` labels (e.g. two `state` rows) no
+  longer collapse to a single hover — matching entries are concatenated.
+- **Tags:** cursor immediately after a typed `on:` no longer yields a lone `:`
+  token that hid `on:*` event completions; `getPositionContext` normalizes this
+  case inside open tags (outside attribute values).
 
 ### Added
 
@@ -41,6 +51,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `test/api-truth.spec.ts` member-receiver gates that pin
   `signal`/`state`/`ref` member surfaces to runtime source-of-truth and
   enforce `declarativeState` / `unknown` returning an empty list.
+- Named import completion inside `import { ... } from "@zenithbuild/router"`
+  now surfaces canonical router exports only (`createRouter`, `navigate`,
+  `refreshCurrentRoute`, `back`, `forward`, `getCurrentPath`, `onRouteChange`,
+  `on`, `off`, `setAdvisoryRoutePolicy`, `zenNavigationShell`, `matchRoute`)
+  with stale hooks (`useRoute`, `useRouter`, `prefetch`) excluded.
+- Expanded script-completion metadata for framework-aligned exports (`zeneffect`,
+  `effect`, `mount`, `zenPresence`, `presence`, `hydrate`) and richer `zenith`
+  hover signatures; `DOM_EVENTS` now includes pointer-first events plus compiler
+  aliases (`hoverin`, `hoverout`, `doubleclick`, `esc`).
+- `test/editor-api-coverage.spec.ts` — static editor API coverage matrix rows
+  plus catalog gates (virtual `zenith` exports, router size, ZenLink props,
+  `DOM_EVENTS`).
+- `test/lsp-completion-events-dom.spec.ts` — LSP stdio tests for `on:*`
+  bindings (including cursor immediately after `on:`), runtime DOM primitives in
+  script context, and `zenith:server-contract` named completions in server
+  scripts only (no leakage into client import braces).
 
 ### Changed
 
@@ -58,8 +84,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Verified
 
-- `bun run test` — 74 tests pass across 8 files (unit + LSP stdio +
-  diagnostics + project-root + neovim smoke).
+- `bun run test` — 93 tests pass across 11 files (unit + LSP stdio +
+  diagnostics + project-root + Neovim smoke + editor coverage gates).
 - `npm run verify:pack` — OK (6 files, all required assets present).
 - Real Neovim against the locally built `dist/server.js`: typing `count.`
   after `const count = signal(0)` returns `get,set,subscribe` only (no

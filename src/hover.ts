@@ -131,12 +131,13 @@ function hoverLifecycle(word: string): Hover | null {
 }
 
 function hoverPlatform(word: string): Hover | null {
-    const platform = PLATFORM_PRIMITIVES.find((p) => p.name === word);
-    if (!platform) return null;
+    const matches = PLATFORM_PRIMITIVES.filter((p) => p.name === word);
+    if (matches.length === 0) return null;
+    const body = matches.map((p) => `### ${p.name}\n\n${p.doc}`).join('\n\n---\n\n');
     return {
         contents: {
             kind: MarkupKind.Markdown,
-            value: `### ${platform.name}\n\n${platform.doc}`
+            value: body
         }
     };
 }

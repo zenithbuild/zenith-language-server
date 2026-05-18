@@ -85,6 +85,47 @@ export const CORE_MODULES: Record<string, CoreModuleMetadata> = {
                 kind: 'function',
                 description: 'Collect multiple Zenith refs into a deterministic array of attached elements. Use instead of `querySelectorAll` for multi-node operations.',
                 signature: 'collectRefs<T extends Element>(...refs: { current: T | null }[]): T[]'
+            },
+            {
+                name: 'zeneffect',
+                kind: 'function',
+                description:
+                    'Low-level effect primitive from `zenith`: auto-tracked `(effect)` or explicit `(dependencies[], effect)`. Prefer `zenEffect` unless dependency lists are required.',
+                signature:
+                    'zeneffect(effect: (ctx: EffectContext) => void | (() => void), options?: EffectOptions): void\nzeneffect<T>(dependencies: unknown[], effect: (ctx: EffectContext) => void | (() => void)): void'
+            },
+            {
+                name: 'effect',
+                kind: 'function',
+                description: 'Alias of `zeneffect` (bundled runtime export).',
+                signature: 'effect: typeof zeneffect'
+            },
+            {
+                name: 'mount',
+                kind: 'function',
+                description: 'Alias of `zenMount` (bundled runtime export).',
+                signature: 'mount: typeof zenMount'
+            },
+            {
+                name: 'zenPresence',
+                kind: 'function',
+                description:
+                    'Ref-owned presence controller for enter/exit transitions. Typically call `.mount()` inside `zenMount` and drive `.setPresent(...)` from reactive state.',
+                signature:
+                    'zenPresence(ref: { current?: Element | null }, options?: { timeoutMs?: number; onPhaseChange?: (phase: string, ctx: unknown) => void } | null): { mount(): () => void; destroy(): void; getPhase(): string; setPresent(nextPresent: boolean): void }'
+            },
+            {
+                name: 'presence',
+                kind: 'function',
+                description: 'Alias of `zenPresence`.',
+                signature: 'presence: typeof zenPresence'
+            },
+            {
+                name: 'hydrate',
+                kind: 'function',
+                description:
+                    'Client bootstrap entry that hydrates compiled Zenith payload output. Advanced runtime integration surface.',
+                signature: 'hydrate(payload: unknown): void'
             }
         ]
     },

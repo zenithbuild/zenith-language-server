@@ -1,26 +1,4 @@
-/**
- * API truth gates for the Zenith language server.
- *
- * Scope (context-aware, NOT repo-wide):
- *   - Completion item snippets / labels / docs surfaced to editors
- *   - Hover content surfaced to editors
- *   - Core module metadata served via the LSP imports module
- *   - README markdown (excluding fenced "forbidden" / "legacy" examples)
- *
- * Purpose:
- *   - Prove completion and hover responses only teach the current canonical
- *     Zenith API (signal().get() / .set(), state x = 0, ref<T>(), zenMount,
- *     zenOn, zenWindow, zenDocument, etc.).
- *   - Block re-introduction of stale framework idioms (Vue .value, React
- *     hooks, Solid createSignal, Svelte $:, Svelte {#if}, vanilla onclick=,
- *     etc.).
- *
- * Source-of-truth audit:
- *   - signal: framework/packages/runtime/src/signal.ts (.get()/.set(), no .value)
- *   - state:  framework/docs/documentation/reactivity/reactivity-model.md
- *             framework/packages/runtime/src/state.ts (state({...}) object store)
- *   - events: framework/docs/documentation/syntax/events.md (on:click={handler})
- */
+/** Completion/hover/core-metadata truth gates (scoped). See framework runtime + AGENTS.md. */
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -151,7 +129,23 @@ test('LIFECYCLE_HOOKS only exposes canonical reactivity entries', () => {
 
 test('PLATFORM_PRIMITIVES only exposes canonical platform/runtime entries', () => {
     assertCompletionEntriesAreClean('PLATFORM_PRIMITIVES', platformBlock);
-    for (const name of ['signal', 'ref', 'zenWindow', 'zenDocument', 'zenOn', 'zenResize', 'collectRefs']) {
+    const required = [
+        'signal',
+        'state',
+        'ref',
+        'zeneffect',
+        'effect',
+        'mount',
+        'zenPresence',
+        'presence',
+        'hydrate',
+        'zenWindow',
+        'zenDocument',
+        'zenOn',
+        'zenResize',
+        'collectRefs'
+    ];
+    for (const name of required) {
         assert.match(platformBlock, new RegExp(`name:\\s*'${name}'`), `must surface \`${name}\``);
     }
 });
@@ -189,8 +183,22 @@ test('zenith core module metadata describes canonical signal/state/ref API', () 
 
     const names = zenith.exports.map((e) => e.name);
     for (const expected of [
-        'signal', 'state', 'ref', 'zenEffect', 'zenMount',
-        'zenWindow', 'zenDocument', 'zenOn', 'zenResize', 'collectRefs'
+        'signal',
+        'state',
+        'ref',
+        'zenEffect',
+        'zenMount',
+        'zeneffect',
+        'effect',
+        'mount',
+        'zenPresence',
+        'presence',
+        'hydrate',
+        'zenWindow',
+        'zenDocument',
+        'zenOn',
+        'zenResize',
+        'collectRefs'
     ]) {
         assert.ok(
             names.includes(expected),
@@ -429,17 +437,6 @@ test('all completion catalog snippets are portable (no VS Code transform syntax)
     for (const snippet of collectCatalogSnippets()) {
         assertPortableSnippet('completion catalog', snippet);
     }
-});
-
-test('catalog-driven completion entries import from canonical metadata module', () => {
-    assert.ok(
-        LIFECYCLE_HOOKS.some((entry) => entry.name === 'state'),
-        'LIFECYCLE_HOOKS must surface `state`'
-    );
-    assert.ok(
-        PLATFORM_PRIMITIVES.some((entry) => entry.name === 'signal'),
-        'PLATFORM_PRIMITIVES must surface `signal`'
-    );
 });
 
 // ---------------------------------------------------------------------------

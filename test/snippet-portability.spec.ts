@@ -40,6 +40,22 @@ test('signal catalog snippet teaches portable counter example with get/set', () 
     assert.match(signal!.snippet, /\.set\(/);
     assert.doesNotMatch(signal!.snippet, /\.value\b/);
     assert.match(signal!.snippet, /\$\{3:increment\}/, 'increment name is a plain tab stop');
+    assert.doesNotMatch(
+        signal!.snippet,
+        /function\s+\$\{1:count\}/,
+        'signal snippet must avoid variable/function declaration collisions'
+    );
+});
+
+test('any script-block snippet uses `<script lang=\"ts\">` (no plain <script>)', () => {
+    const snippets = collectCatalogSnippets();
+    for (const snippet of snippets) {
+        if (!snippet.includes('<script')) {
+            continue;
+        }
+        assert.match(snippet, /<script\s+lang="ts">/i);
+        assert.doesNotMatch(snippet, /<script>\s*/i);
+    }
 });
 
 test('LSP stdio signal completion insertText is portable and teaches get/set', async () => {

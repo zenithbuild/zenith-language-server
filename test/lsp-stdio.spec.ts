@@ -282,8 +282,106 @@ test('import-path completion includes @zenithbuild/router but not legacy zenith/
 
         assert.ok(Array.isArray(completion) && completion.length > 0, 'expected completion items');
         const labels = new Set(completion.map((item: any) => item.label));
+        assert.ok(labels.has('zenith'), 'must offer core zenith module');
         assert.ok(labels.has('@zenithbuild/router'), 'must offer canonical @zenithbuild/router');
+        assert.ok(labels.has('@zenithbuild/router/ZenLink.zen'), 'must offer canonical ZenLink subpath');
         assert.ok(!labels.has('zenith/router'), 'must not offer legacy zenith/router');
+        assert.ok(!labels.has('useRoute'), 'must not offer stale hook imports');
+        assert.ok(!labels.has('useRouter'), 'must not offer stale hook imports');
+        assert.ok(!labels.has('prefetch'), 'must not offer stale hook imports');
+    }, ['--stdio']);
+});
+
+test('import-path completion only offers zenith:server-contract in server scripts', async () => {
+    await withClient(async (lsp) => {
+        await lsp.initialize();
+        const regularUri = 'file:///tmp/import-path-regular.zen';
+        const regular = '<script lang="ts">\nimport ""\n</script>\n';
+        lsp.notify('textDocument/didOpen', openTextDocument(regularUri, regular));
+        const regularCompletion = await lsp.request('textDocument/completion', {
+            textDocument: { uri: regularUri },
+            position: positionOf(regular, 'import ""', 8)
+        });
+        const regularLabels = new Set(regularCompletion.map((item: any) => item.label));
+        assert.ok(!regularLabels.has('zenith:server-contract'), 'regular scripts must not suggest zenith:server-contract');
+
+        const serverUri = 'file:///tmp/import-path-server.zen';
+        const server = '<script server lang="ts">\nimport ""\n</script>\n';
+        lsp.notify('textDocument/didOpen', openTextDocument(serverUri, server));
+        const serverCompletion = await lsp.request('textDocument/completion', {
+            textDocument: { uri: serverUri },
+            position: positionOf(server, 'import ""', 8)
+        });
+        const serverLabels = new Set(serverCompletion.map((item: any) => item.label));
+        assert.ok(serverLabels.has('zenith:server-contract'), 'server scripts should suggest zenith:server-contract');
+    }, ['--stdio']);
+});
+
+test('named import completion on @zenithbuild/router only exposes canonical exports', async () => {
+    await withClient(async (lsp) => {
+        await lsp.initialize();
+        const uri = 'file:///tmp/import-router-named.zen';
+        const text = '<script lang="ts">\nimport {  } from "@zenithbuild/router"\n</script>\n';
+        lsp.notify('textDocument/didOpen', openTextDocument(uri, text));
+        const completion = await lsp.request('textDocument/completion', {
+            textDocument: { uri },
+            position: positionOf(text, '{  }', 2)
+        });
+
+        const labels = new Set(completion.map((item: any) => item.label));
+        for (const expected of [
+            'createRouter',
+            'navigate',
+            'refreshCurrentRoute',
+            'back',
+            'forward',
+            'getCurrentPath',
+            'onRouteChange',
+            'on',
+            'off',
+            'setAdvisoryRoutePolicy',
+            'zenNavigationShell',
+            'matchRoute'
+        ]) {
+            assert.ok(labels.has(expected), `named import completion must include ${expected}`);
+        }
+        for (const stale of ['useRoute', 'useRouter', 'prefetch', 'zenith/router']) {
+            assert.ok(!labels.has(stale), `named import completion must not include ${stale}`);
+        }
+    }, ['--stdio']);
+});
+
+test('tag completion apply outcome does not produce extra `>` and closing flow is safe', async () => {
+    await withClient(async (lsp) => {
+        await lsp.initialize();
+
+        const htmlUri = 'file:///tmp/tag-open-apply.zen';
+        const htmlText = 'di';
+        lsp.notify('textDocument/didOpen', openTextDocument(htmlUri, htmlText));
+        const htmlCompletion = await lsp.request('textDocument/completion', {
+            textDocument: { uri: htmlUri },
+            position: { line: 0, character: 2 }
+        });
+        const divItem = htmlCompletion.find((item: any) => item.label === 'div');
+        assert.ok(divItem, 'expected div completion in typing-tag context');
+        const divInsertText = String(divItem.insertText ?? '');
+        const appliedDiv = divInsertText;
+        assert.doesNotMatch(appliedDiv, />>/, 'applied opening-tag snippet must not contain `>>`');
+        assert.match(appliedDiv, /^<div>/, 'applied opening tag should start with a single `<div>`');
+        assert.match(appliedDiv, /<\/div>$/, 'paired tag snippet remains explicit and valid');
+
+        const closingUri = 'file:///tmp/tag-close-apply.zen';
+        const closingText = '</';
+        lsp.notify('textDocument/didOpen', openTextDocument(closingUri, closingText));
+        const closingCompletion = await lsp.request('textDocument/completion', {
+            textDocument: { uri: closingUri },
+            position: { line: 0, character: 2 }
+        });
+        const closingItem = closingCompletion.find((item: any) => String(item.label) === '/div');
+        assert.ok(closingItem, 'expected /div completion for closing-tag flow');
+        const closingApplied = `</${String(closingItem.insertText ?? '')}`;
+        assert.equal(closingApplied, '</div>', 'closing-tag flow must complete safely with one `>`');
+        assert.doesNotMatch(closingApplied, />>/, 'closing flow must not produce duplicate `>`');
     }, ['--stdio']);
 });
 

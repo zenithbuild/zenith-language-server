@@ -26,7 +26,7 @@ import {
 } from './metadata/completion-metadata';
 
 import { ROUTER_FUNCTIONS } from './router';
-import { getAllModules } from './imports';
+import { getAllModules, getModuleExports } from './imports';
 
 import {
     extractFunctions,
@@ -46,6 +46,7 @@ export interface ScriptDeps {
     functions: ReturnType<typeof extractFunctions>;
     bindings: Map<string, BindingKind>;
     routerEnabled: boolean;
+    inServerScript: boolean;
 }
 
 /**
@@ -58,6 +59,7 @@ export interface ScriptDeps {
 export function buildScriptCompletions(
     ctx: PositionContext,
     lineBefore: string,
+    lineAfter: string,
     deps: ScriptDeps
 ): CompletionItem[] {
     if (ctx.memberAccess) {
@@ -73,7 +75,8 @@ export function buildScriptCompletions(
     }
     addDeclaredFunctions(completions, ctx, deps.functions);
     addDeclarativeStates(completions, ctx, deps.states);
-    addImportPathModules(completions, lineBefore);
+    addImportSpecifierCompletions(completions, ctx, lineBefore, lineAfter, deps.inServerScript);
+    addImportPathModules(completions, lineBefore, deps.inServerScript);
     return completions;
 }
 
@@ -223,12 +226,68 @@ function addDeclarativeStates(
     }
 }
 
-function addImportPathModules(completions: CompletionItem[], lineBefore: string): void {
+function addImportSpecifierCompletions(
+    completions: CompletionItem[],
+    ctx: PositionContext,
+    lineBefore: string,
+    lineAfter: string,
+    inServerScript: boolean
+): void {
+    const specifierMatch = lineBefore.match(/import\s+(?:type\s+)?\{([^}]*)$/);
+    if (!specifierMatch) {
+        return;
+    }
+    const existing = new Set(
+        specifierMatch[1]
+            .split(',')
+            .map((entry) => entry.trim().split(/\s+as\s+/)[0]?.trim())
+            .filter(Boolean) as string[]
+    );
+
+    const moduleMatch = lineAfter.match(/^\s*\}\s+from\s+['"]([^'"]+)['"]/);
+    const activeModule = moduleMatch ? moduleMatch[1] : null;
+    if (!activeModule) {
+        return;
+    }
+    if (activeModule === 'zenith:server-contract' && !inServerScript) {
+        return;
+    }
+    if (!getAllModules().some((mod) => mod.module === activeModule)) {
+        return;
+    }
+
+    for (const exp of getModuleExports(activeModule)) {
+        if (existing.has(exp.name)) {
+            continue;
+        }
+        if (!matchesPrefix(exp.name, ctx.currentWord)) {
+            continue;
+        }
+        completions.push({
+            label: exp.name,
+            kind: completionKindForExport(exp.kind),
+            detail: activeModule,
+            documentation: {
+                kind: MarkupKind.Markdown,
+                value: exp.signature
+                    ? `${exp.description}\n\n**Signature:**\n\`\`\`typescript\n${exp.signature}\n\`\`\``
+                    : exp.description
+            },
+            insertText: exp.name,
+            sortText: `0_${exp.name}`
+        });
+    }
+}
+
+function addImportPathModules(completions: CompletionItem[], lineBefore: string, inServerScript: boolean): void {
     const isImportPath = /from\s+['"][^'"]*$/.test(lineBefore) || /import\s+['"][^'"]*$/.test(lineBefore);
     if (!isImportPath) {
         return;
     }
     for (const mod of getAllModules()) {
+        if (mod.module === 'zenith:server-contract' && !inServerScript) {
+            continue;
+        }
         completions.push({
             label: mod.module,
             kind: CompletionItemKind.Module,
@@ -236,6 +295,19 @@ function addImportPathModules(completions: CompletionItem[], lineBefore: string)
             documentation: mod.description,
             insertText: mod.module
         });
+    }
+}
+
+function completionKindForExport(kind: 'function' | 'component' | 'type' | 'variable'): CompletionItemKind {
+    switch (kind) {
+        case 'function':
+            return CompletionItemKind.Function;
+        case 'component':
+            return CompletionItemKind.Class;
+        case 'type':
+            return CompletionItemKind.Interface;
+        default:
+            return CompletionItemKind.Variable;
     }
 }
 

@@ -144,7 +144,13 @@ export function getPositionContext(text: string, offset: number): PositionContex
     }
 
     const wordMatch = before.match(/[a-zA-Z_$:@][a-zA-Z0-9_$:-]*$/);
-    const currentWord = wordMatch ? wordMatch[0] : '';
+    let currentWord = wordMatch ? wordMatch[0] : '';
+
+    // Tag UX: cursor immediately after `on:` yields a lone `:` token; normalize so `on:*`
+    // event completions still surface (see `addTagContextCompletions`).
+    if (inTag && !inAttributeValue && currentWord === ':' && /\bon:$/.test(before)) {
+        currentWord = 'on:';
+    }
 
     const afterAt = before.endsWith('@') || currentWord.startsWith('@');
     const afterColon = before.endsWith(':') || (currentWord.startsWith(':') && !currentWord.startsWith(':'));

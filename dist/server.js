@@ -714,7 +714,7 @@ var CORE_MODULES = {
         name: "zenNavigationShell",
         kind: "function",
         description: "Mount a navigation-shell controller that observes phase transitions (`idle` \u2192 `leaving` \u2192 `swapping` \u2192 `entering`) for chrome animations and skeletons.",
-        signature: "zenNavigationShell(options?: NavigationShellOptions): NavigationShellController"
+        signature: "zenNavigationShell(ref: { current?: Element | null }, options?: NavigationShellOptions | null): NavigationShellController"
       },
       {
         name: "matchRoute",
@@ -1007,7 +1007,7 @@ var ROUTER_FUNCTIONS = [
   {
     name: "zenNavigationShell",
     description: "Mount a navigation-shell controller that observes phase transitions (`idle` \u2192 `leaving` \u2192 `swapping` \u2192 `entering`) for chrome animations and skeletons.",
-    signature: "zenNavigationShell(options?: NavigationShellOptions): NavigationShellController"
+    signature: "zenNavigationShell(ref: { current?: Element | null }, options?: NavigationShellOptions | null): NavigationShellController"
   },
   {
     name: "matchRoute",

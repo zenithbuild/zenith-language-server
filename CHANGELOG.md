@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-05-18
+
+### ✨ Features
+
+- ****lsp**: editor API coverage + Neovim completion fix (0.7.15)** (63c4d0a)
+  > Align LSP completion/hover/metadata with shipped `@zenithbuild/router` and
+  > `ZenLink.zen`, remove React-style children/className prop inference, split
+  > `server.ts` under the 500-line cap, and add API truth + stdio completion tests.
+  > 
+  > Closes editor API coverage work for 0.7.15. No publish/tag/latest from this merge.
+
 ## [0.7.15] - 2026-05-17
 
 ### Added

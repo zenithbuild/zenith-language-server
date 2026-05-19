@@ -49,6 +49,7 @@ import {
 import { extractBindings, resolveReceiverKind } from './extractors-bindings';
 import { memberCompletionItems } from './metadata/receiver-members';
 import { buildScriptCompletions } from './completion-script';
+import { DOC_PATHS, markdownDoc, zenithDetail, zenithSortText } from './metadata/completion-branding';
 
 /**
  * Produce completion items for the given document position.
@@ -323,15 +324,22 @@ function addTagContextCompletions(
     }
 
     if (!ctx.currentWord || ctx.currentWord.startsWith('on:') || ctx.currentWord === 'on') {
+        const inOnContext = ctx.currentWord.startsWith('on:') || ctx.currentWord === 'on';
+        let eventRank = 0;
         for (const event of DOM_EVENTS) {
+            const label = `on:${event}`;
             completions.push({
-                label: `on:${event}`,
+                label,
                 kind: CompletionItemKind.Event,
-                detail: 'event binding',
-                documentation: `Bind to ${event} event`,
+                detail: zenithDetail('on:' + event, 'event binding'),
+                documentation: markdownDoc(
+                    `Canonical Zenith event binding: \`on:${event}={handler}\`. Not \`onClick\` or \`@click\`.`,
+                    DOC_PATHS.events
+                ),
                 insertText: `on:${event}={$1}`,
                 insertTextFormat: InsertTextFormat.Snippet,
-                sortText: `1_on:${event}`
+                filterText: label,
+                sortText: inOnContext ? zenithSortText(eventRank++, label) : `1_${label}`
             });
         }
     }

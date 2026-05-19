@@ -86,7 +86,8 @@ export const ROUTER_FUNCTIONS: RouterFunctionMetadata[] = [
     {
         name: 'zenNavigationShell',
         description: 'Mount a navigation-shell controller that observes phase transitions (`idle` → `leaving` → `swapping` → `entering`) for chrome animations and skeletons.',
-        signature: 'zenNavigationShell(options?: NavigationShellOptions): NavigationShellController'
+        signature:
+            'zenNavigationShell(ref: { current?: Element | null }, options?: NavigationShellOptions | null): NavigationShellController'
     },
     {
         name: 'matchRoute',

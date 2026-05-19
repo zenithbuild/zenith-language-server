@@ -1,207 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { access, readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const packageRoot = join(__dirname, '..');
-const binPath = join(packageRoot, 'bin', 'zenith-language-server.js');
-const distPath = join(packageRoot, 'dist', 'server.js');
-const nodeBin = process.env.NODE_BINARY || 'node';
+import {
+    HARNESS_PATHS,
+    openTextDocument,
+    positionOf,
+    withClient
+} from './helpers/lsp-stdio';
 
-interface PendingRequest {
-    resolve(value: unknown): void;
-    reject(error: Error): void;
-}
-
-interface NotificationWaiter {
-    method: string;
-    resolve(value: any): void;
-}
-
-class StdioLspClient {
-    readonly #server: ChildProcessWithoutNullStreams;
-    readonly #pending = new Map<number, PendingRequest>();
-    readonly #notifications: any[] = [];
-    readonly #waiters: NotificationWaiter[] = [];
-    #buffer = Buffer.alloc(0);
-    #nextId = 1;
-    #stderr = '';
-
-    constructor(args: string[] = []) {
-        this.#server = spawn(nodeBin, [binPath, ...args], {
-            cwd: packageRoot,
-            stdio: ['pipe', 'pipe', 'pipe']
-        });
-
-        this.#server.stdout.on('data', (chunk) => {
-            this.#buffer = Buffer.concat([this.#buffer, chunk]);
-            this.#readMessages();
-        });
-        this.#server.stderr.on('data', (chunk) => {
-            this.#stderr += chunk.toString('utf8');
-        });
-        this.#server.on('exit', (code, signal) => {
-            if (this.#pending.size === 0) {
-                return;
-            }
-            const error = new Error(`language server exited before response code=${code} signal=${signal} stderr=${this.#stderr}`);
-            for (const pending of this.#pending.values()) {
-                pending.reject(error);
-            }
-            this.#pending.clear();
-        });
-    }
-
-    async initialize(): Promise<any> {
-        const result = await this.request('initialize', {
-            processId: process.pid,
-            rootUri: 'file:///tmp',
-            capabilities: {
-                workspace: { configuration: false },
-                textDocument: {}
-            },
-            workspaceFolders: null
-        });
-        this.notify('initialized', {});
-        return result;
-    }
-
-    request(method: string, params: unknown): Promise<any> {
-        const id = this.#nextId;
-        this.#nextId += 1;
-        const promise = new Promise((resolve, reject) => {
-            this.#pending.set(id, { resolve, reject });
-        });
-        this.#send({ jsonrpc: '2.0', id, method, params });
-        return promise;
-    }
-
-    notify(method: string, params: unknown): void {
-        this.#send({ jsonrpc: '2.0', method, params });
-    }
-
-    waitForNotification(method: string, timeoutMs = 7000): Promise<any> {
-        const existingIndex = this.#notifications.findIndex((message) => message.method === method);
-        if (existingIndex !== -1) {
-            const [message] = this.#notifications.splice(existingIndex, 1);
-            return Promise.resolve(message.params);
-        }
-
-        return new Promise((resolve, reject) => {
-            const timer = setTimeout(() => {
-                const index = this.#waiters.findIndex((waiter) => waiter.resolve === resolve);
-                if (index !== -1) {
-                    this.#waiters.splice(index, 1);
-                }
-                reject(new Error(`Timed out waiting for ${method}; stderr=${this.#stderr}`));
-            }, timeoutMs);
-            this.#waiters.push({
-                method,
-                resolve(value) {
-                    clearTimeout(timer);
-                    resolve(value);
-                }
-            });
-        });
-    }
-
-    async close(): Promise<void> {
-        if (!this.#server.killed) {
-            try {
-                await this.request('shutdown', null);
-            } catch {
-                // The process may already have exited after a failed startup.
-            }
-            this.notify('exit', {});
-            this.#server.kill('SIGTERM');
-        }
-    }
-
-    #send(message: unknown): void {
-        const body = JSON.stringify(message);
-        this.#server.stdin.write(`Content-Length: ${Buffer.byteLength(body, 'utf8')}\r\n\r\n${body}`);
-    }
-
-    #readMessages(): void {
-        while (true) {
-            const headerEnd = this.#buffer.indexOf('\r\n\r\n');
-            if (headerEnd === -1) {
-                return;
-            }
-
-            const header = this.#buffer.slice(0, headerEnd).toString('utf8');
-            const match = /Content-Length: (\d+)/i.exec(header);
-            if (!match) {
-                throw new Error(`Missing Content-Length header: ${header}`);
-            }
-
-            const length = Number(match[1]);
-            const bodyStart = headerEnd + 4;
-            if (this.#buffer.length < bodyStart + length) {
-                return;
-            }
-
-            const body = this.#buffer.slice(bodyStart, bodyStart + length).toString('utf8');
-            this.#buffer = this.#buffer.slice(bodyStart + length);
-            this.#handleMessage(JSON.parse(body));
-        }
-    }
-
-    #handleMessage(message: any): void {
-        if (message.id !== undefined && this.#pending.has(message.id)) {
-            const pending = this.#pending.get(message.id)!;
-            this.#pending.delete(message.id);
-            if (message.error) {
-                pending.reject(new Error(JSON.stringify(message.error)));
-            } else {
-                pending.resolve(message.result);
-            }
-            return;
-        }
-
-        if (message.method) {
-            const waiterIndex = this.#waiters.findIndex((waiter) => waiter.method === message.method);
-            if (waiterIndex !== -1) {
-                const [waiter] = this.#waiters.splice(waiterIndex, 1);
-                waiter?.resolve(message.params);
-                return;
-            }
-            this.#notifications.push(message);
-        }
-    }
-}
-
-const openTextDocument = (uri: string, text: string) => ({
-    textDocument: {
-        uri,
-        languageId: 'zenith',
-        version: 1,
-        text
-    }
-});
-
-function positionOf(text: string, token: string, offset = 0) {
-    const index = text.indexOf(token);
-    assert.ok(index >= 0, `Expected token ${token}`);
-    const before = text.slice(0, index + offset).split('\n');
-    return {
-        line: before.length - 1,
-        character: before.at(-1)!.length
-    };
-}
-
-async function withClient(callback: (client: StdioLspClient) => Promise<void>, args: string[] = []): Promise<void> {
-    await access(distPath);
-    const client = new StdioLspClient(args);
-    try {
-        await callback(client);
-    } finally {
-        await client.close();
-    }
-}
+const { binPath } = HARNESS_PATHS;
 
 test('package bin defaults to stdio and preserves explicit transport flags', async () => {
     const source = await readFile(binPath, 'utf8');
@@ -474,8 +282,106 @@ test('import-path completion includes @zenithbuild/router but not legacy zenith/
 
         assert.ok(Array.isArray(completion) && completion.length > 0, 'expected completion items');
         const labels = new Set(completion.map((item: any) => item.label));
+        assert.ok(labels.has('zenith'), 'must offer core zenith module');
         assert.ok(labels.has('@zenithbuild/router'), 'must offer canonical @zenithbuild/router');
+        assert.ok(labels.has('@zenithbuild/router/ZenLink.zen'), 'must offer canonical ZenLink subpath');
         assert.ok(!labels.has('zenith/router'), 'must not offer legacy zenith/router');
+        assert.ok(!labels.has('useRoute'), 'must not offer stale hook imports');
+        assert.ok(!labels.has('useRouter'), 'must not offer stale hook imports');
+        assert.ok(!labels.has('prefetch'), 'must not offer stale hook imports');
+    }, ['--stdio']);
+});
+
+test('import-path completion only offers zenith:server-contract in server scripts', async () => {
+    await withClient(async (lsp) => {
+        await lsp.initialize();
+        const regularUri = 'file:///tmp/import-path-regular.zen';
+        const regular = '<script lang="ts">\nimport ""\n</script>\n';
+        lsp.notify('textDocument/didOpen', openTextDocument(regularUri, regular));
+        const regularCompletion = await lsp.request('textDocument/completion', {
+            textDocument: { uri: regularUri },
+            position: positionOf(regular, 'import ""', 8)
+        });
+        const regularLabels = new Set(regularCompletion.map((item: any) => item.label));
+        assert.ok(!regularLabels.has('zenith:server-contract'), 'regular scripts must not suggest zenith:server-contract');
+
+        const serverUri = 'file:///tmp/import-path-server.zen';
+        const server = '<script server lang="ts">\nimport ""\n</script>\n';
+        lsp.notify('textDocument/didOpen', openTextDocument(serverUri, server));
+        const serverCompletion = await lsp.request('textDocument/completion', {
+            textDocument: { uri: serverUri },
+            position: positionOf(server, 'import ""', 8)
+        });
+        const serverLabels = new Set(serverCompletion.map((item: any) => item.label));
+        assert.ok(serverLabels.has('zenith:server-contract'), 'server scripts should suggest zenith:server-contract');
+    }, ['--stdio']);
+});
+
+test('named import completion on @zenithbuild/router only exposes canonical exports', async () => {
+    await withClient(async (lsp) => {
+        await lsp.initialize();
+        const uri = 'file:///tmp/import-router-named.zen';
+        const text = '<script lang="ts">\nimport {  } from "@zenithbuild/router"\n</script>\n';
+        lsp.notify('textDocument/didOpen', openTextDocument(uri, text));
+        const completion = await lsp.request('textDocument/completion', {
+            textDocument: { uri },
+            position: positionOf(text, '{  }', 2)
+        });
+
+        const labels = new Set(completion.map((item: any) => item.label));
+        for (const expected of [
+            'createRouter',
+            'navigate',
+            'refreshCurrentRoute',
+            'back',
+            'forward',
+            'getCurrentPath',
+            'onRouteChange',
+            'on',
+            'off',
+            'setAdvisoryRoutePolicy',
+            'zenNavigationShell',
+            'matchRoute'
+        ]) {
+            assert.ok(labels.has(expected), `named import completion must include ${expected}`);
+        }
+        for (const stale of ['useRoute', 'useRouter', 'prefetch', 'zenith/router']) {
+            assert.ok(!labels.has(stale), `named import completion must not include ${stale}`);
+        }
+    }, ['--stdio']);
+});
+
+test('tag completion apply outcome does not produce extra `>` and closing flow is safe', async () => {
+    await withClient(async (lsp) => {
+        await lsp.initialize();
+
+        const htmlUri = 'file:///tmp/tag-open-apply.zen';
+        const htmlText = 'di';
+        lsp.notify('textDocument/didOpen', openTextDocument(htmlUri, htmlText));
+        const htmlCompletion = await lsp.request('textDocument/completion', {
+            textDocument: { uri: htmlUri },
+            position: { line: 0, character: 2 }
+        });
+        const divItem = htmlCompletion.find((item: any) => item.label === 'div');
+        assert.ok(divItem, 'expected div completion in typing-tag context');
+        const divInsertText = String(divItem.insertText ?? '');
+        const appliedDiv = divInsertText;
+        assert.doesNotMatch(appliedDiv, />>/, 'applied opening-tag snippet must not contain `>>`');
+        assert.match(appliedDiv, /^<div>/, 'applied opening tag should start with a single `<div>`');
+        assert.match(appliedDiv, /<\/div>$/, 'paired tag snippet remains explicit and valid');
+
+        const closingUri = 'file:///tmp/tag-close-apply.zen';
+        const closingText = '</';
+        lsp.notify('textDocument/didOpen', openTextDocument(closingUri, closingText));
+        const closingCompletion = await lsp.request('textDocument/completion', {
+            textDocument: { uri: closingUri },
+            position: { line: 0, character: 2 }
+        });
+        const closingItem = closingCompletion.find((item: any) => String(item.label) === '/div');
+        assert.ok(closingItem, 'expected /div completion for closing-tag flow');
+        const closingApplied = `</${String(closingItem.insertText ?? '')}`;
+        assert.equal(closingApplied, '</div>', 'closing-tag flow must complete safely with one `>`');
+        assert.doesNotMatch(closingApplied, />>/, 'closing flow must not produce duplicate `>`');
     }, ['--stdio']);
 });
 

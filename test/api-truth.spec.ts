@@ -1,26 +1,4 @@
-/**
- * API truth gates for the Zenith language server.
- *
- * Scope (context-aware, NOT repo-wide):
- *   - Completion item snippets / labels / docs surfaced to editors
- *   - Hover content surfaced to editors
- *   - Core module metadata served via the LSP imports module
- *   - README markdown (excluding fenced "forbidden" / "legacy" examples)
- *
- * Purpose:
- *   - Prove completion and hover responses only teach the current canonical
- *     Zenith API (signal().get() / .set(), state x = 0, ref<T>(), zenMount,
- *     zenOn, zenWindow, zenDocument, etc.).
- *   - Block re-introduction of stale framework idioms (Vue .value, React
- *     hooks, Solid createSignal, Svelte $:, Svelte {#if}, vanilla onclick=,
- *     etc.).
- *
- * Source-of-truth audit:
- *   - signal: framework/packages/runtime/src/signal.ts (.get()/.set(), no .value)
- *   - state:  framework/docs/documentation/reactivity/reactivity-model.md
- *             framework/packages/runtime/src/state.ts (state({...}) object store)
- *   - events: framework/docs/documentation/syntax/events.md (on:click={handler})
- */
+/** Completion/hover/core-metadata truth gates (scoped). See framework runtime + AGENTS.md. */
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -35,6 +13,11 @@ import {
     PLATFORM_PRIMITIVES
 } from '../src/metadata/completion-metadata';
 import { ROUTER_FUNCTIONS, ZENLINK_PROPS } from '../src/router';
+import { membersForReceiver } from '../src/metadata/receiver-members';
+import {
+    assertPortableSnippet,
+    collectCatalogSnippets
+} from './helpers/snippet-portability';
 
 const ROOT = path.resolve(__dirname, '..');
 const COMPLETION_METADATA_PATH = path.join(ROOT, 'src', 'metadata', 'completion-metadata.ts');
@@ -146,7 +129,23 @@ test('LIFECYCLE_HOOKS only exposes canonical reactivity entries', () => {
 
 test('PLATFORM_PRIMITIVES only exposes canonical platform/runtime entries', () => {
     assertCompletionEntriesAreClean('PLATFORM_PRIMITIVES', platformBlock);
-    for (const name of ['signal', 'ref', 'zenWindow', 'zenDocument', 'zenOn', 'zenResize', 'collectRefs']) {
+    const required = [
+        'signal',
+        'state',
+        'ref',
+        'zeneffect',
+        'effect',
+        'mount',
+        'zenPresence',
+        'presence',
+        'hydrate',
+        'zenWindow',
+        'zenDocument',
+        'zenOn',
+        'zenResize',
+        'collectRefs'
+    ];
+    for (const name of required) {
         assert.match(platformBlock, new RegExp(`name:\\s*'${name}'`), `must surface \`${name}\``);
     }
 });
@@ -155,8 +154,10 @@ test('signal completion snippet teaches canonical `.get()` / `.set()` API', () =
     const snippets = extractFieldStrings(platformBlock, 'snippet');
     const signalSnippet = snippets.find((s) => /signal\(/.test(s));
     assert.ok(signalSnippet, 'signal completion must have a snippet');
+    assertPortableSnippet('PLATFORM_PRIMITIVES signal', signalSnippet!);
     assert.match(signalSnippet!, /\.set\(/, 'signal snippet must teach `.set(...)`');
     assert.match(signalSnippet!, /\.get\(\)/, 'signal snippet must teach `.get()`');
+    assert.doesNotMatch(signalSnippet!, /\$\{\d+\//, 'signal snippet must not use VS Code regex transforms');
 });
 
 test('ref completion snippet uses canonical `ref<T>()` form', () => {
@@ -182,8 +183,22 @@ test('zenith core module metadata describes canonical signal/state/ref API', () 
 
     const names = zenith.exports.map((e) => e.name);
     for (const expected of [
-        'signal', 'state', 'ref', 'zenEffect', 'zenMount',
-        'zenWindow', 'zenDocument', 'zenOn', 'zenResize', 'collectRefs'
+        'signal',
+        'state',
+        'ref',
+        'zenEffect',
+        'zenMount',
+        'zeneffect',
+        'effect',
+        'mount',
+        'zenPresence',
+        'presence',
+        'hydrate',
+        'zenWindow',
+        'zenDocument',
+        'zenOn',
+        'zenResize',
+        'collectRefs'
     ]) {
         assert.ok(
             names.includes(expected),
@@ -369,15 +384,59 @@ test('project.ts only honors `interface Props { … }` for prop inference', () =
     );
 });
 
-test('catalog-driven completion entries import from canonical metadata module', () => {
-    assert.ok(
-        LIFECYCLE_HOOKS.some((entry) => entry.name === 'state'),
-        'LIFECYCLE_HOOKS must surface `state`'
-    );
-    assert.ok(
-        PLATFORM_PRIMITIVES.some((entry) => entry.name === 'signal'),
-        'PLATFORM_PRIMITIVES must surface `signal`'
-    );
+// ---------------------------------------------------------------------------
+// Receiver member catalog: framework runtime truth (signal/state/ref)
+// ---------------------------------------------------------------------------
+
+test('signal receiver members match framework runtime truth (get/set/subscribe)', () => {
+    const members = membersForReceiver('signal');
+    const labels = members.map((m) => m.label);
+    assert.deepEqual(labels, ['get', 'set', 'subscribe'], 'signal exposes get/set/subscribe only');
+
+    const set = members.find((m) => m.label === 'set')!;
+    assert.match(set.detail, /set\(nextValue: T\): T/, 'signal.set returns T per packages/runtime/src/signal.ts');
+
+    const get = members.find((m) => m.label === 'get')!;
+    assert.match(get.detail, /get\(\): T/);
+
+    const subscribe = members.find((m) => m.label === 'subscribe')!;
+    assert.match(subscribe.detail, /subscribe\(fn:.*\): \(\) => void/);
+
+    for (const member of members) {
+        assertNoStalePatterns(`receiver-members signal ${member.label}`, `${member.label}\n${member.detail}`);
+    }
+});
+
+test('runtime state receiver members match framework state.ts (Readonly<T> snapshots)', () => {
+    const members = membersForReceiver('runtimeState');
+    const labels = members.map((m) => m.label);
+    assert.deepEqual(labels, ['get', 'set', 'subscribe']);
+
+    const get = members.find((m) => m.label === 'get')!;
+    assert.match(get.detail, /get\(\): Readonly<T>/);
+
+    const set = members.find((m) => m.label === 'set')!;
+    assert.match(set.detail, /set\(patch:.*Partial<T>.*\): Readonly<T>/);
+});
+
+test('ref receiver members expose only `current`', () => {
+    const members = membersForReceiver('ref');
+    const labels = members.map((m) => m.label);
+    assert.deepEqual(labels, ['current']);
+
+    const current = members[0];
+    assert.match(current.detail, /current: T \| null/);
+});
+
+test('declarativeState and unknown receivers expose no members (no fake signal API)', () => {
+    assert.deepEqual(membersForReceiver('declarativeState'), []);
+    assert.deepEqual(membersForReceiver('unknown'), []);
+});
+
+test('all completion catalog snippets are portable (no VS Code transform syntax)', () => {
+    for (const snippet of collectCatalogSnippets()) {
+        assertPortableSnippet('completion catalog', snippet);
+    }
 });
 
 // ---------------------------------------------------------------------------

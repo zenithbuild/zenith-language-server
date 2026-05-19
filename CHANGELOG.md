@@ -5,6 +5,94 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Replaced VS Code-only regex snippet transform on the `signal` completion
+  (`${1/(.*)/${1:/capitalize}/}`) with portable LSP tab stops so Neovim
+  `vim.snippet` / blink.cmp can expand the counter example without parse errors.
+- Hardened template/tag completion insertion so HTML snippets no longer append an
+  extra `>` in typing-tag flows, and added explicit `</` closing-tag completions
+  that safely complete to a single closing delimiter.
+- Import path completion now keeps `zenith:server-contract` behind
+  `<script server lang="ts">` context instead of suggesting it in every script.
+- **Hover:** duplicate `PLATFORM_PRIMITIVES` labels (e.g. two `state` rows) no
+  longer collapse to a single hover — matching entries are concatenated.
+- **Tags:** cursor immediately after a typed `on:` no longer yields a lone `:`
+  token that hid `on:*` event completions; `getPositionContext` normalizes this
+  case inside open tags (outside attribute values).
+
+### Added
+
+- Context-aware member completion for `signal`, runtime `state()`, and `ref`
+  bindings. Typing `count.` after `const count = signal(0)` now surfaces only
+  the receiver's instance members (`get`, `set`, `subscribe`) instead of
+  dumping every top-level Zenith primitive. Unknown receivers (e.g. `thing.`)
+  and declarative `state name = ...` bindings deliberately return no member
+  completions to avoid teaching wrong APIs.
+- `src/metadata/receiver-members.ts` — receiver member catalog derived
+  verbatim from `framework/packages/runtime/src/{signal,state,ref}.ts`
+  (`signal.set(nextValue: T): T`, `state.set(...) : Readonly<T>`,
+  `ref.current: T | null`).
+- `src/extractors-bindings.ts` — regex extractor that tracks
+  `const|let|var name = signal|state|ref(...)` bindings in the script body
+  and exposes `resolveReceiverKind(name, bindings, states)`.
+- `src/member-access.ts` + `test/member-access.spec.ts` — unit-tested
+  `parseMemberAccess(before)` detector with explicit handling of decimal
+  literals (`1.`), bracket / call / return / assignment boundaries, chained
+  member access, and single-line string suppression.
+- `test/completion-members.spec.ts` — LSP stdio coverage for signal / ref /
+  runtime state members, unknown receivers, declarative state, top-level
+  prefix completion (`sig` → `signal`), in-string suppression, and a
+  regression sweep for stale `value` / `useState` / `useRoute` labels.
+- `test/helpers/lsp-stdio.ts` — shared LSP stdio harness extracted from
+  `lsp-stdio.spec.ts` so multiple spec files can stay under the 500-line cap.
+- `test/api-truth.spec.ts` member-receiver gates that pin
+  `signal`/`state`/`ref` member surfaces to runtime source-of-truth and
+  enforce `declarativeState` / `unknown` returning an empty list.
+- Named import completion inside `import { ... } from "@zenithbuild/router"`
+  now surfaces canonical router exports only (`createRouter`, `navigate`,
+  `refreshCurrentRoute`, `back`, `forward`, `getCurrentPath`, `onRouteChange`,
+  `on`, `off`, `setAdvisoryRoutePolicy`, `zenNavigationShell`, `matchRoute`)
+  with stale hooks (`useRoute`, `useRouter`, `prefetch`) excluded.
+- Expanded script-completion metadata for framework-aligned exports (`zeneffect`,
+  `effect`, `mount`, `zenPresence`, `presence`, `hydrate`) and richer `zenith`
+  hover signatures; `DOM_EVENTS` now includes pointer-first events plus compiler
+  aliases (`hoverin`, `hoverout`, `doubleclick`, `esc`).
+- `test/editor-api-coverage.spec.ts` — static editor API coverage matrix rows
+  plus catalog gates (virtual `zenith` exports, router size, ZenLink props,
+  `DOM_EVENTS`).
+- `test/lsp-completion-events-dom.spec.ts` — LSP stdio tests for `on:*`
+  bindings (including cursor immediately after `on:`), runtime DOM primitives in
+  script context, and `zenith:server-contract` named completions in server
+  scripts only (no leakage into client import braces).
+
+### Changed
+
+- Refactored `src/completion.ts` (was ~480 lines): extracted
+  `addScriptContextCompletions` into `src/completion-script.ts` so the
+  member-access branch can short-circuit ahead of the catalog dump. The
+  orchestrator now routes member access for both script and expression
+  contexts (`{count.}` inside markup) through `memberCompletionItems`.
+- `PositionContext` (`src/extractors.ts`) gains a `memberAccess` field
+  populated from `parseMemberAccess` when the cursor is in script or
+  expression context.
+- Member completion never leaks unrelated top-level primitives. The prior
+  behavior (empty `currentWord` after `count.` → full `LIFECYCLE_HOOKS` +
+  `PLATFORM_PRIMITIVES` dump) is gone.
+
+### Verified
+
+- `bun run test` — 93 tests pass across 11 files (unit + LSP stdio +
+  diagnostics + project-root + Neovim smoke + editor coverage gates).
+- `npm run verify:pack` — OK (6 files, all required assets present).
+- Real Neovim against the locally built `dist/server.js`: typing `count.`
+  after `const count = signal(0)` returns `get,set,subscribe` only (no
+  `value`, no primitive dump). `el.` returns `current` only. `thing.` and
+  declarative `state x = 0; x.` return empty lists. `sig` prefix still
+  surfaces `signal`.
+
 ## [0.8.0] - 2026-05-18
 
 ### ✨ Features

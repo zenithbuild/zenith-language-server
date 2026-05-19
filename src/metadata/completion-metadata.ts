@@ -46,6 +46,60 @@ export const LIFECYCLE_HOOKS: CompletionEntry[] = [
  */
 export const PLATFORM_PRIMITIVES: CompletionEntry[] = [
     {
+        name: 'signal',
+        doc: 'Create a reactive signal with explicit `.get()` / `.set(value)` / `.subscribe(fn)` methods.\n\nThere is no `.value` property — that pattern belongs to other frameworks.',
+        snippet: 'const ${1:count} = signal(${2:0});\nfunction ${3:increment}() {\n\t${1:count}.set(${1:count}.get() + 1);\n}\n$0',
+        kind: CompletionItemKind.Function
+    },
+    {
+        name: 'state',
+        doc: '**Runtime** plain-object store imported from `zenith`: `.get()` / `.set(patch | updater)` / `.subscribe`. Distinct from declarative `state name = initial` (keyword completion above).',
+        snippet: 'state(${1:{ count: 0 }})',
+        kind: CompletionItemKind.Function
+    },
+    {
+        name: 'ref',
+        doc: 'Create a Zenith ref for a DOM node (or stable value). Access via `.current`. Do not use `.value`.',
+        snippet: 'ref<${1:HTMLElement}>()',
+        kind: CompletionItemKind.Function
+    },
+    {
+        name: 'zeneffect',
+        doc: 'Low-level effect primitive: auto-tracked callback or explicit `(dependencies[], effect)`. Prefer `zenEffect` in `.zen` unless you need explicit dependency lists.',
+        snippet: 'zeneffect((ctx) => {\n\t$0\n})',
+        kind: CompletionItemKind.Function
+    },
+    {
+        name: 'effect',
+        doc: 'Alias of `zeneffect` (bundled runtime export). Prefer `zenEffect` / `zeneffect` in new code.',
+        snippet: 'effect((ctx) => {\n\t$0\n})',
+        kind: CompletionItemKind.Function
+    },
+    {
+        name: 'mount',
+        doc: 'Alias of `zenMount` (bundled runtime export). Prefer `zenMount` in `.zen` scripts.',
+        snippet: 'mount((ctx) => {\n\t$0\n})',
+        kind: CompletionItemKind.Function
+    },
+    {
+        name: 'zenPresence',
+        doc: 'Ref-owned presence controller for enter/exit transitions. Call `.mount()` inside `zenMount`, drive `.setPresent(...)` from reactive state.',
+        snippet: 'zenPresence(${1:ref})$0',
+        kind: CompletionItemKind.Function
+    },
+    {
+        name: 'presence',
+        doc: 'Alias of `zenPresence`.',
+        snippet: 'presence(${1:ref})$0',
+        kind: CompletionItemKind.Function
+    },
+    {
+        name: 'hydrate',
+        doc: 'Client bootstrap for hydrating a compiled Zenith payload. Advanced integration surface used outside typical `.zen` components.',
+        snippet: 'hydrate($0)',
+        kind: CompletionItemKind.Function
+    },
+    {
         name: 'zenWindow',
         doc: 'SSR-safe `window` access. Returns `null` outside the browser. Use instead of the global `window`.',
         snippet: 'zenWindow()',
@@ -73,18 +127,6 @@ export const PLATFORM_PRIMITIVES: CompletionEntry[] = [
         name: 'collectRefs',
         doc: 'Collect multiple refs into a deterministic array of attached elements. Use instead of `querySelectorAll` for multi-node operations.',
         snippet: 'collectRefs(${1:refA}, ${2:refB})',
-        kind: CompletionItemKind.Function
-    },
-    {
-        name: 'signal',
-        doc: 'Create a reactive signal with explicit `.get()` / `.set(value)` / `.subscribe(fn)` methods.\n\nThere is no `.value` property — that pattern belongs to other frameworks.',
-        snippet: 'const ${1:count} = signal(${2:0});\nfunction increment${1/(.*)/${1:/capitalize}/}() {\n\t${1:count}.set(${1:count}.get() + 1);\n}\n$0',
-        kind: CompletionItemKind.Function
-    },
-    {
-        name: 'ref',
-        doc: 'Create a Zenith ref for a DOM node (or stable value). Access via `.current`. Do not use `.value`.',
-        snippet: 'ref<${1:HTMLElement}>()',
         kind: CompletionItemKind.Function
     }
 ];
@@ -164,6 +206,16 @@ export const HTML_ATTRIBUTES = [
  * DOM events offered for `on:<event>` bindings.
  */
 export const DOM_EVENTS = [
-    'click', 'change', 'input', 'submit', 'keydown', 'keyup', 'keypress',
-    'focus', 'blur', 'mouseover', 'mouseout', 'mouseenter', 'mouseleave'
+    // Prefer pointer events where applicable (Zenith agent contract).
+    'click', 'change', 'input', 'submit',
+    'keydown', 'keyup', 'keypress',
+    'pointerdown', 'pointerup', 'pointermove', 'pointercancel',
+    'pointerenter', 'pointerleave',
+    'focus', 'blur',
+    'mouseover', 'mouseout', 'mouseenter', 'mouseleave',
+    // Compiler-supported aliases (normalized at compile time).
+    'hoverin',
+    'hoverout',
+    'doubleclick',
+    'esc'
 ] as const;

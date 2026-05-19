@@ -7,6 +7,7 @@
  */
 
 import { parseForExpression } from './metadata/directive-metadata';
+import { parseMemberAccess, type MemberAccessSite } from './member-access';
 
 export interface PositionContext {
     inScript: boolean;
@@ -19,6 +20,7 @@ export interface PositionContext {
     currentWord: string;
     afterAt: boolean;
     afterColon: boolean;
+    memberAccess: MemberAccessSite | null;
 }
 
 export interface DeclaredFunction {
@@ -142,10 +144,30 @@ export function getPositionContext(text: string, offset: number): PositionContex
     }
 
     const wordMatch = before.match(/[a-zA-Z_$:@][a-zA-Z0-9_$:-]*$/);
-    const currentWord = wordMatch ? wordMatch[0] : '';
+    let currentWord = wordMatch ? wordMatch[0] : '';
+
+    // Tag UX: cursor immediately after `on:` yields a lone `:` token; normalize so `on:*`
+    // event completions still surface (see `addTagContextCompletions`).
+    if (inTag && !inAttributeValue && currentWord === ':' && /\bon:$/.test(before)) {
+        currentWord = 'on:';
+    }
 
     const afterAt = before.endsWith('@') || currentWord.startsWith('@');
     const afterColon = before.endsWith(':') || (currentWord.startsWith(':') && !currentWord.startsWith(':'));
 
-    return { inScript, inStyle, inTag, inExpression, inTemplate, inAttributeValue, tagName, currentWord, afterAt, afterColon };
+    const memberAccess = (inScript || inExpression) ? parseMemberAccess(before) : null;
+
+    return {
+        inScript,
+        inStyle,
+        inTag,
+        inExpression,
+        inTemplate,
+        inAttributeValue,
+        tagName,
+        currentWord,
+        afterAt,
+        afterColon,
+        memberAccess
+    };
 }

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-05-19
+
+### ✨ Features
+
+- ****lsp**: brand and rank Zenith completions for editor clarity** (2a89e5a)
+  > Add completion-branding helpers (sortText, filterText, detail, Docs lines).
+  > Signal members show Zenith Signal.get/set/subscribe; sig prefix preselects signal.
+  > Event bindings branded in tag context. Add completion-ranking.spec.ts metadata tests.
+  > 
+  > Co-authored-by: Cursor <cursoragent@cursor.com>
+
+### 📝 Other Changes
+
+- **Merge pull request #7 from zenithbuild/follow-up-intellisense-ranking** (40a4002)
+  > feat(lsp): land IntelliSense ranking/metadata on main
+
 ## [0.8.1] - 2026-05-19
 
 ### 🐛 Bug Fixes

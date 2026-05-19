@@ -47,7 +47,7 @@ export const LIFECYCLE_HOOKS: CompletionEntry[] = [
 export const PLATFORM_PRIMITIVES: CompletionEntry[] = [
     {
         name: 'signal',
-        doc: 'Create a reactive signal with explicit `.get()` / `.set(value)` / `.subscribe(fn)` methods.\n\nThere is no `.value` property — that pattern belongs to other frameworks.',
+        doc: 'Zenith signal: create a reactive signal with explicit `.get()` / `.set(value)` / `.subscribe(fn)` methods.\n\nThere is no `.value` property — that pattern belongs to other frameworks.',
         snippet: 'const ${1:count} = signal(${2:0});\nfunction ${3:increment}() {\n\t${1:count}.set(${1:count}.get() + 1);\n}\n$0',
         kind: CompletionItemKind.Function
     },

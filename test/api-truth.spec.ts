@@ -394,13 +394,13 @@ test('signal receiver members match framework runtime truth (get/set/subscribe)'
     assert.deepEqual(labels, ['get', 'set', 'subscribe'], 'signal exposes get/set/subscribe only');
 
     const set = members.find((m) => m.label === 'set')!;
-    assert.match(set.detail, /set\(nextValue: T\): T/, 'signal.set returns T per packages/runtime/src/signal.ts');
+    assert.match(set.detail, /Zenith Signal\.set/, 'signal.set must be branded per editor contract');
 
     const get = members.find((m) => m.label === 'get')!;
-    assert.match(get.detail, /get\(\): T/);
+    assert.match(get.detail, /Zenith Signal\.get/);
 
     const subscribe = members.find((m) => m.label === 'subscribe')!;
-    assert.match(subscribe.detail, /subscribe\(fn:.*\): \(\) => void/);
+    assert.match(subscribe.detail, /Zenith Signal\.subscribe/);
 
     for (const member of members) {
         assertNoStalePatterns(`receiver-members signal ${member.label}`, `${member.label}\n${member.detail}`);
@@ -413,10 +413,10 @@ test('runtime state receiver members match framework state.ts (Readonly<T> snaps
     assert.deepEqual(labels, ['get', 'set', 'subscribe']);
 
     const get = members.find((m) => m.label === 'get')!;
-    assert.match(get.detail, /get\(\): Readonly<T>/);
+    assert.match(get.detail, /Zenith State\.get/);
 
     const set = members.find((m) => m.label === 'set')!;
-    assert.match(set.detail, /set\(patch:.*Partial<T>.*\): Readonly<T>/);
+    assert.match(set.detail, /Zenith State\.set/);
 });
 
 test('ref receiver members expose only `current`', () => {
@@ -425,7 +425,7 @@ test('ref receiver members expose only `current`', () => {
     assert.deepEqual(labels, ['current']);
 
     const current = members[0];
-    assert.match(current.detail, /current: T \| null/);
+    assert.match(current.detail, /Zenith Ref\.current/);
 });
 
 test('declarativeState and unknown receivers expose no members (no fake signal API)', () => {

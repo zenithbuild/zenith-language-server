@@ -57,7 +57,11 @@ test('member completion on `signal(...)` binding surfaces get/set/subscribe only
         }
 
         const setItem = completion.find((item: any) => item.label === 'set');
-        assert.match(String(setItem.detail ?? ''), /set\(nextValue: T\): T/, 'set detail must match runtime signature (returns T, not void)');
+        assert.match(
+            String(setItem.detail ?? ''),
+            /Zenith Signal\.set/,
+            'set detail must brand Zenith Signal.set (not generic setTimeout)'
+        );
     });
 });
 

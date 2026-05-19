@@ -40,6 +40,60 @@ import {
 } from './extractors-bindings';
 
 import { memberCompletionItems } from './metadata/receiver-members';
+import {
+    DOC_PATHS,
+    markdownDoc,
+    shouldPreselectDeclarativeState,
+    shouldPreselectSignal,
+    zenithDetail,
+    zenithSortText
+} from './metadata/completion-branding';
+
+const PRIMITIVE_DETAIL: Record<string, { surface: string; signature: string; docPath: string }> = {
+    signal: {
+        surface: 'signal<T>(initial)',
+        signature: 'ZenithSignal<T>',
+        docPath: DOC_PATHS.reactivity
+    },
+    state: {
+        surface: 'state<T>(initial)',
+        signature: 'StateStore<T>',
+        docPath: DOC_PATHS.reactivity
+    },
+    ref: {
+        surface: 'ref<T>()',
+        signature: 'ZenithRef<T>',
+        docPath: DOC_PATHS.domEnv
+    },
+    zenEffect: { surface: 'zenEffect(effect)', signature: 'void', docPath: DOC_PATHS.effectsVsMount },
+    zeneffect: { surface: 'zeneffect(...)', signature: 'void', docPath: DOC_PATHS.effectsVsMount },
+    effect: { surface: 'effect(...)', signature: 'void', docPath: DOC_PATHS.effectsVsMount },
+    zenMount: { surface: 'zenMount(callback)', signature: 'void', docPath: DOC_PATHS.effectsVsMount },
+    mount: { surface: 'mount(callback)', signature: 'void', docPath: DOC_PATHS.effectsVsMount },
+    zenPresence: { surface: 'zenPresence(ref)', signature: 'PresenceController', docPath: DOC_PATHS.effectsVsMount },
+    presence: { surface: 'presence(ref)', signature: 'PresenceController', docPath: DOC_PATHS.effectsVsMount },
+    hydrate: { surface: 'hydrate(payload)', signature: 'void', docPath: DOC_PATHS.reactivity },
+    zenWindow: { surface: 'zenWindow()', signature: 'Window | null', docPath: DOC_PATHS.domEnv },
+    zenDocument: { surface: 'zenDocument()', signature: 'Document | null', docPath: DOC_PATHS.domEnv },
+    zenOn: { surface: 'zenOn(target, event, handler)', signature: '() => void', docPath: DOC_PATHS.domEnv },
+    zenResize: { surface: 'zenResize(handler)', signature: '() => void', docPath: DOC_PATHS.domEnv },
+    collectRefs: { surface: 'collectRefs(...refs)', signature: 'Element[]', docPath: DOC_PATHS.domEnv }
+};
+
+function primitiveRank(name: string, currentWord: string): number {
+    const w = currentWord.toLowerCase();
+    const n = name.toLowerCase();
+    if (!w) {
+        return 50;
+    }
+    if (n === w) {
+        return 0;
+    }
+    if (n.startsWith(w)) {
+        return name === 'signal' && w.startsWith('sig') ? 0 : 5;
+    }
+    return 40;
+}
 
 export interface ScriptDeps {
     states: Map<string, string>;
@@ -109,15 +163,20 @@ function addLifecycleHooks(completions: CompletionItem[], ctx: PositionContext):
         if (!matchesPrefix(hook.name, ctx.currentWord)) {
             continue;
         }
+        const isState = hook.name === 'state';
+        const docPath = isState ? DOC_PATHS.reactivity : DOC_PATHS.effectsVsMount;
         completions.push({
             label: hook.name,
             kind: hook.kind,
-            detail: hook.name === 'state' ? 'Zenith State' : 'Zenith Lifecycle',
-            documentation: { kind: MarkupKind.Markdown, value: hook.doc },
+            detail: isState
+                ? zenithDetail('state name = initial', 'declarative keyword')
+                : zenithDetail(hook.name, 'lifecycle hook'),
+            documentation: markdownDoc(hook.doc, docPath),
             insertText: hook.snippet,
             insertTextFormat: InsertTextFormat.Snippet,
-            sortText: `0_${hook.name}`,
-            preselect: hook.name === 'state' && ctx.currentWord.startsWith('s')
+            filterText: hook.name,
+            sortText: zenithSortText(isState ? 2 : 10, hook.name),
+            preselect: isState && shouldPreselectDeclarativeState(ctx.currentWord)
         });
     }
 }
@@ -127,14 +186,21 @@ function addPlatformPrimitives(completions: CompletionItem[], ctx: PositionConte
         if (!matchesPrefix(prim.name, ctx.currentWord)) {
             continue;
         }
+        const meta = PRIMITIVE_DETAIL[prim.name];
+        const detail = meta
+            ? zenithDetail(meta.surface, meta.signature)
+            : zenithDetail(prim.name, 'platform primitive');
+        const docPath = meta?.docPath ?? DOC_PATHS.reactivity;
         completions.push({
             label: prim.name,
             kind: prim.kind,
-            detail: 'Zenith Platform',
-            documentation: { kind: MarkupKind.Markdown, value: prim.doc },
+            detail,
+            documentation: markdownDoc(prim.doc, docPath),
             insertText: prim.snippet,
             insertTextFormat: InsertTextFormat.Snippet,
-            sortText: `0_${prim.name}`
+            filterText: prim.name,
+            sortText: zenithSortText(primitiveRank(prim.name, ctx.currentWord), prim.name),
+            preselect: prim.name === 'signal' && shouldPreselectSignal(ctx.currentWord)
         });
     }
 }
@@ -145,26 +211,28 @@ function addSsrSafeShortcuts(completions: CompletionItem[], ctx: PositionContext
         completions.push({
             label: 'zenWindow',
             kind: CompletionItemKind.Function,
-            detail: 'Zenith (SSR-safe)',
-            documentation: {
-                kind: MarkupKind.Markdown,
-                value: 'Use zenWindow() instead of window for SSR-safe access.'
-            },
+            detail: zenithDetail('zenWindow()', 'Window | null'),
+            documentation: markdownDoc(
+                'Use zenWindow() instead of window for SSR-safe access.',
+                DOC_PATHS.domEnv
+            ),
             insertText: 'zenWindow()',
-            sortText: '0_zenWindow'
+            filterText: 'zenWindow',
+            sortText: zenithSortText(5, 'zenWindow')
         });
     }
     if (lc === 'document' || lc.startsWith('doc')) {
         completions.push({
             label: 'zenDocument',
             kind: CompletionItemKind.Function,
-            detail: 'Zenith (SSR-safe)',
-            documentation: {
-                kind: MarkupKind.Markdown,
-                value: 'Use zenDocument() instead of document for SSR-safe access.'
-            },
+            detail: zenithDetail('zenDocument()', 'Document | null'),
+            documentation: markdownDoc(
+                'Use zenDocument() instead of document for SSR-safe access.',
+                DOC_PATHS.domEnv
+            ),
             insertText: 'zenDocument()',
-            sortText: '0_zenDocument'
+            filterText: 'zenDocument',
+            sortText: zenithSortText(5, 'zenDocument')
         });
     }
 }

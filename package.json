@@ -1,6 +1,6 @@
 {
   "name": "@zenithbuild/language-server",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Language Server for Zenith Framework",
   "main": "./dist/server.js",
   "bin": {

@@ -46,6 +46,7 @@ import { collectDiagnostics } from './diagnostics';
 import {
     buildDomLintCodeActions,
     buildEventBindingCodeActions,
+    buildRuntimeImportCodeActions,
     buildWindowDocumentCodeActions
 } from './code-actions';
 import {
@@ -136,9 +137,10 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
         return [];
     }
     const eventActions = buildEventBindingCodeActions(document, params.context.diagnostics);
+    const runtimeImportActions = buildRuntimeImportCodeActions(document, params.context.diagnostics);
     const domLintActions = buildDomLintCodeActions(document, params.context.diagnostics);
     const windowDocActions = buildWindowDocumentCodeActions(document, params.range);
-    return [...eventActions, ...domLintActions, ...windowDocActions];
+    return [...eventActions, ...runtimeImportActions, ...domLintActions, ...windowDocActions];
 });
 
 // Debounce + cancellation for diagnostics (prevents editor lag from rapid typing)

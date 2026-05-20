@@ -36,7 +36,6 @@ as `--stdio`, `--node-ipc`, and `--socket=...` are still preserved.
 - **Code Actions**: DOM-safety and event-binding quick fixes where supported.
 - **Contract Enforcement**:
   - `on:click={handler}` event syntax diagnostics + quick fixes for `onclick` / `@click`.
-  - Component script policy (`zenith.componentScripts`: `forbid` | `allow`).
   - CSS import contract diagnostics for local precompiled CSS only.
 - **Project Root Resolution**:
   - nearest `zenith.config.*`
@@ -45,9 +44,6 @@ as `--stdio`, `--node-ipc`, and `--socket=...` are still preserved.
 
 ## Settings
 
-- `zenith.componentScripts`
-  - `forbid` (default): components may not contain `<script>`.
-  - `allow`: disables the component-script contract diagnostic.
 - `zenith.strictDomLints`
   - `false` (default): reports `ZEN-DOM-*` diagnostics as warnings.
   - `true`: reports `ZEN-DOM-*` diagnostics as errors.

@@ -2339,25 +2339,13 @@ function resolveCssImportPath(importingFilePath, specifier, projectRoot) {
     escapesProjectRoot
   };
 }
-function classifyZenithFile(filePath) {
-  const normalized = filePath.replace(/\\/g, "/");
-  if (!normalized.endsWith(".zen")) {
-    return "unknown";
-  }
-  if (normalized.includes("/src/pages/") || normalized.includes("/app/pages/")) {
-    return "page";
-  }
-  if (normalized.includes("/src/layouts/") || normalized.includes("/app/layouts/")) {
-    return "layout";
-  }
-  return "component";
-}
 
 // src/code-actions.ts
 var EVENT_BINDING_DIAGNOSTIC_CODE = "zenith.event.binding.syntax";
 var ZEN_DOM_QUERY = "ZEN-DOM-QUERY";
 var ZEN_DOM_LISTENER = "ZEN-DOM-LISTENER";
 var ZEN_DOM_WRAPPER = "ZEN-DOM-WRAPPER";
+var ZENITH_RUNTIME_IMPORT_DIAGNOSTIC_CODE = "ZENITH-IMPORT-RUNTIME";
 function buildEventBindingCodeActions(document, diagnostics) {
   const actions = [];
   for (const diagnostic of diagnostics) {
@@ -2377,6 +2365,29 @@ function buildEventBindingCodeActions(document, diagnostics) {
           [document.uri]: [{
             range: diagnostic.range,
             newText: data.replacement
+          }]
+        }
+      },
+      isPreferred: true
+    });
+  }
+  return actions;
+}
+function buildRuntimeImportCodeActions(document, diagnostics) {
+  const actions = [];
+  for (const diagnostic of diagnostics) {
+    if (diagnostic.code !== ZENITH_RUNTIME_IMPORT_DIAGNOSTIC_CODE) {
+      continue;
+    }
+    actions.push({
+      title: 'Replace "zenith:runtime" with "zenith"',
+      kind: "quickfix",
+      diagnostics: [diagnostic],
+      edit: {
+        changes: {
+          [document.uri]: [{
+            range: diagnostic.range,
+            newText: "zenith"
           }]
         }
       },
@@ -2522,7 +2533,7 @@ function buildWindowDocumentCodeActions(document, range) {
 }
 
 // src/diagnostics.ts
-var COMPONENT_SCRIPT_CONTRACT_MESSAGE = "Zenith Contract Violation: Components are structural; move <script> to the parent route scope.";
+var COMPILER_UNAVAILABLE_MESSAGE = "Zenith compiler is unavailable in this editor runtime. Install/resolve @zenithbuild/compiler or use a bundled Zenith extension build. Completion and hover remain available.";
 var CSS_BARE_IMPORT_MESSAGE = "CSS import contract violation: bare CSS imports are not supported.";
 var CSS_ESCAPE_MESSAGE = "CSS import contract violation: imported CSS path escapes project root.";
 var DiagnosticSeverity = {
@@ -2585,7 +2596,6 @@ async function collectDiagnostics(document, graph, settings, projectRoot) {
   const diagnostics = [];
   const text = document.getText();
   const filePath = uriToFilePath(document.uri);
-  let hasComponentScriptCompilerDiagnostic = false;
   try {
     process.env.ZENITH_CACHE = "1";
     const { compile } = await import("@zenithbuild/compiler");
@@ -2610,39 +2620,22 @@ async function collectDiagnostics(document, graph, settings, projectRoot) {
       });
     }
   } catch (error) {
-    const message = String(error?.message || "Unknown compiler error");
-    const isContractViolation = message.includes(COMPONENT_SCRIPT_CONTRACT_MESSAGE);
-    if (isContractViolation) {
-      hasComponentScriptCompilerDiagnostic = true;
-    }
-    if (!(settings.componentScripts === "allow" && isContractViolation)) {
-      diagnostics.push({
-        severity: DiagnosticSeverity.Error,
-        range: {
-          start: { line: (error?.line || 1) - 1, character: (error?.column || 1) - 1 },
-          end: { line: (error?.line || 1) - 1, character: (error?.column || 1) + 20 }
-        },
-        message: `[${error?.code || "compiler"}] ${message}${error?.hints ? "\n\nHints:\n" + error.hints.join("\n") : ""}`,
-        source: "zenith-compiler"
-      });
-    }
+    diagnostics.push(buildCompilerFailureDiagnostic(error));
   }
   diagnostics.push(
     ...collectContractDiagnostics(
       document,
       graph,
       settings,
-      projectRoot,
-      hasComponentScriptCompilerDiagnostic
+      projectRoot
     )
   );
   return diagnostics;
 }
-function collectContractDiagnostics(document, graph, settings, projectRoot, hasComponentScriptCompilerDiagnostic = false) {
+function collectContractDiagnostics(document, graph, settings, projectRoot) {
   const diagnostics = [];
   const text = document.getText();
   const filePath = uriToFilePath(document.uri);
-  collectComponentScriptDiagnostics(document, text, filePath, settings, diagnostics, hasComponentScriptCompilerDiagnostic);
   collectEventBindingDiagnostics(document, text, diagnostics);
   collectDirectiveDiagnostics(document, text, diagnostics);
   collectImportDiagnostics(document, text, diagnostics);
@@ -2650,30 +2643,6 @@ function collectContractDiagnostics(document, graph, settings, projectRoot, hasC
   collectExpressionDiagnostics(document, text, diagnostics);
   collectComponentDiagnostics(document, text, graph, diagnostics);
   return diagnostics;
-}
-function collectComponentScriptDiagnostics(document, text, filePath, settings, diagnostics, hasComponentScriptCompilerDiagnostic) {
-  if (settings.componentScripts !== "forbid") {
-    return;
-  }
-  if (classifyZenithFile(filePath) !== "component") {
-    return;
-  }
-  if (hasComponentScriptCompilerDiagnostic) {
-    return;
-  }
-  const scriptTagMatch = /<script\b[^>]*>/i.exec(text);
-  if (!scriptTagMatch || scriptTagMatch.index == null) {
-    return;
-  }
-  diagnostics.push({
-    severity: DiagnosticSeverity.Error,
-    range: {
-      start: document.positionAt(scriptTagMatch.index),
-      end: document.positionAt(scriptTagMatch.index + scriptTagMatch[0].length)
-    },
-    message: COMPONENT_SCRIPT_CONTRACT_MESSAGE,
-    source: "zenith-contract"
-  });
 }
 function collectEventBindingDiagnostics(document, text, diagnostics) {
   const stripped = stripScriptAndStylePreserveIndices(text);
@@ -2846,11 +2815,18 @@ function collectImportDiagnostics(document, text, diagnostics) {
         const importOffset = scriptStart + (importMatch.index || 0);
         const startPos = document.positionAt(importOffset);
         const endPos = document.positionAt(importOffset + importMatch[0].length);
+        const isRuntimeImport = imp.module === "zenith:runtime";
+        const moduleOffsetInImport = importMatch[0].indexOf(imp.module);
+        const runtimeRange = isRuntimeImport && moduleOffsetInImport >= 0 ? {
+          start: document.positionAt(importOffset + moduleOffsetInImport),
+          end: document.positionAt(importOffset + moduleOffsetInImport + imp.module.length)
+        } : { start: startPos, end: endPos };
         diagnostics.push({
           severity: DiagnosticSeverity.Information,
-          range: { start: startPos, end: endPos },
-          message: `Unknown plugin module: '${imp.module}'. Make sure the plugin is installed.`,
-          source: "zenith"
+          range: runtimeRange,
+          message: isRuntimeImport ? 'Unknown Zenith import "zenith:runtime"; use "zenith" or omit the import if compiler-injected primitives are available.' : `Unknown plugin module: '${imp.module}'. Make sure the plugin is installed.`,
+          source: "zenith",
+          ...isRuntimeImport ? { code: ZENITH_RUNTIME_IMPORT_DIAGNOSTIC_CODE } : {}
         });
       }
     }
@@ -2914,17 +2890,44 @@ function collectExpressionDiagnostics(document, text, diagnostics) {
     }
   }
 }
+function buildCompilerFailureDiagnostic(error) {
+  const message = String(error?.message || "Unknown compiler error");
+  if (isCompilerUnavailableError(error, message)) {
+    return {
+      severity: DiagnosticSeverity.Warning,
+      range: {
+        start: { line: 0, character: 0 },
+        end: { line: 0, character: 1 }
+      },
+      message: COMPILER_UNAVAILABLE_MESSAGE,
+      source: "zenith-compiler",
+      code: "ZENITH-COMPILER-UNAVAILABLE"
+    };
+  }
+  return {
+    severity: DiagnosticSeverity.Error,
+    range: {
+      start: { line: (error?.line || 1) - 1, character: (error?.column || 1) - 1 },
+      end: { line: (error?.line || 1) - 1, character: (error?.column || 1) + 20 }
+    },
+    message: `[${error?.code || "compiler"}] ${message}${error?.hints ? "\n\nHints:\n" + error.hints.join("\n") : ""}`,
+    source: "zenith-compiler"
+  };
+}
+function isCompilerUnavailableError(error, message) {
+  const normalized = message.toLowerCase();
+  const code = String(error?.code || "");
+  return code === "ERR_MODULE_NOT_FOUND" && normalized.includes("@zenithbuild/compiler") || normalized.includes("cannot find package '@zenithbuild/compiler'") || normalized.includes("cannot find module '@zenithbuild/compiler'") || normalized.includes("compiler binary not installed");
+}
 
 // src/settings.ts
 var DEFAULT_SETTINGS = Object.freeze({
-  componentScripts: "forbid",
   strictDomLints: false
 });
 function normalizeSettings(input) {
   const maybe = input || {};
-  const mode = maybe.componentScripts === "allow" ? "allow" : "forbid";
   const strictDomLints = maybe.strictDomLints === true;
-  return { componentScripts: mode, strictDomLints };
+  return { strictDomLints };
 }
 
 // src/server.ts
@@ -2996,9 +2999,10 @@ connection.onCodeAction((params) => {
     return [];
   }
   const eventActions = buildEventBindingCodeActions(document, params.context.diagnostics);
+  const runtimeImportActions = buildRuntimeImportCodeActions(document, params.context.diagnostics);
   const domLintActions = buildDomLintCodeActions(document, params.context.diagnostics);
   const windowDocActions = buildWindowDocumentCodeActions(document, params.range);
-  return [...eventActions, ...domLintActions, ...windowDocActions];
+  return [...eventActions, ...runtimeImportActions, ...domLintActions, ...windowDocActions];
 });
 var DEBOUNCE_MS = 150;
 var validationTimeouts = /* @__PURE__ */ new Map();

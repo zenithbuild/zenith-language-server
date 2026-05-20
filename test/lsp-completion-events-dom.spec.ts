@@ -166,3 +166,23 @@ test('client script does not surface zenith:server-contract named exports inside
         }
     }, ['--stdio']);
 });
+
+test('import path completions include canonical zenith module and exclude zenith:runtime', async () => {
+    await withClient(async (lsp) => {
+        await lsp.initialize();
+        const uri = 'file:///tmp/import-modules.zen';
+        const token = 'from "zen';
+        const text = `<script lang="ts">\nimport { signal } ${token}"\n</script>\n`;
+
+        lsp.notify('textDocument/didOpen', openTextDocument(uri, text));
+
+        const completion = await lsp.request('textDocument/completion', {
+            textDocument: { uri },
+            position: positionOf(text, token, token.length)
+        });
+
+        const labels = new Set(completion.map((item: any) => String(item.label)));
+        assert.ok(labels.has('zenith'), 'must suggest canonical zenith module');
+        assert.ok(!labels.has('zenith:runtime'), 'must not suggest unsupported zenith:runtime module');
+    }, ['--stdio']);
+});

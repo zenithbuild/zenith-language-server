@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-05-20
+
+### Fixed
+
+- Removed the stale editor-owned component-script blanket diagnostic and
+  `zenith.componentScripts` setting so page, layout, and component scripts can
+  follow compiler truth instead of an old LSP policy.
+- Hardened missing compiler handling to emit one controlled
+  `ZENITH-COMPILER-UNAVAILABLE` warning instead of leaking raw
+  `ERR_MODULE_NOT_FOUND` or stack text into Problems.
+- Replaced generic `zenith:runtime` import wording with precise guidance:
+  use `zenith` or omit the import when compiler-injected primitives are
+  available.
+- Added a quick fix that rewrites `"zenith:runtime"` import specifiers to
+  `"zenith"`.
+
+### Verified
+
+- `bun run build`
+- `bun run test` — 104 tests pass.
+- `npm run verify:pack`
+- `npm pack --dry-run`
+- `git diff --check`
+
 ## [0.9.0] - 2026-05-19
 
 ### ✨ Features

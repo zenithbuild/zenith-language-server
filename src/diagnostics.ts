@@ -11,16 +11,18 @@ import { parseForExpression } from './metadata/directive-metadata';
 import { parseZenithImports, resolveModule, isPluginModule } from './imports';
 import type { ProjectGraph } from './project';
 import {
-    classifyZenithFile,
     isCssContractImportSpecifier,
     isLocalCssSpecifier,
     resolveCssImportPath
 } from './contracts';
 import type { ZenithServerSettings } from './settings';
-import { EVENT_BINDING_DIAGNOSTIC_CODE } from './code-actions';
+import {
+    EVENT_BINDING_DIAGNOSTIC_CODE,
+    ZENITH_RUNTIME_IMPORT_DIAGNOSTIC_CODE
+} from './code-actions';
 
-const COMPONENT_SCRIPT_CONTRACT_MESSAGE =
-    'Zenith Contract Violation: Components are structural; move <script> to the parent route scope.';
+const COMPILER_UNAVAILABLE_MESSAGE =
+    'Zenith compiler is unavailable in this editor runtime. Install/resolve @zenithbuild/compiler or use a bundled Zenith extension build. Completion and hover remain available.';
 
 const CSS_BARE_IMPORT_MESSAGE =
     'CSS import contract violation: bare CSS imports are not supported.';
@@ -149,9 +151,7 @@ export async function collectDiagnostics(
     const text = document.getText();
     const filePath = uriToFilePath(document.uri);
 
-    let hasComponentScriptCompilerDiagnostic = false;
-
-    // 1) Compiler validation (source-of-truth), with configurable suppression for component script contract.
+    // 1) Compiler validation. The compiler remains the source of truth.
     try {
         process.env.ZENITH_CACHE = '1';
         const { compile } = await import('@zenithbuild/compiler');
@@ -183,24 +183,7 @@ export async function collectDiagnostics(
             });
         }
     } catch (error: any) {
-        const message = String(error?.message || 'Unknown compiler error');
-        const isContractViolation = message.includes(COMPONENT_SCRIPT_CONTRACT_MESSAGE);
-
-        if (isContractViolation) {
-            hasComponentScriptCompilerDiagnostic = true;
-        }
-
-        if (!(settings.componentScripts === 'allow' && isContractViolation)) {
-            diagnostics.push({
-                severity: DiagnosticSeverity.Error,
-                range: {
-                    start: { line: (error?.line || 1) - 1, character: (error?.column || 1) - 1 },
-                    end: { line: (error?.line || 1) - 1, character: (error?.column || 1) + 20 }
-                },
-                message: `[${error?.code || 'compiler'}] ${message}${error?.hints ? '\n\nHints:\n' + error.hints.join('\n') : ''}`,
-                source: 'zenith-compiler'
-            });
-        }
+        diagnostics.push(buildCompilerFailureDiagnostic(error));
     }
 
     diagnostics.push(
@@ -208,8 +191,7 @@ export async function collectDiagnostics(
             document,
             graph,
             settings,
-            projectRoot,
-            hasComponentScriptCompilerDiagnostic
+            projectRoot
         )
     );
 
@@ -220,14 +202,12 @@ export function collectContractDiagnostics(
     document: ZenithTextDocumentLike,
     graph: ProjectGraph | null,
     settings: ZenithServerSettings,
-    projectRoot: string | null,
-    hasComponentScriptCompilerDiagnostic = false
+    projectRoot: string | null
 ): ZenithDiagnostic[] {
     const diagnostics: ZenithDiagnostic[] = [];
     const text = document.getText();
     const filePath = uriToFilePath(document.uri);
 
-    collectComponentScriptDiagnostics(document, text, filePath, settings, diagnostics, hasComponentScriptCompilerDiagnostic);
     collectEventBindingDiagnostics(document, text, diagnostics);
     collectDirectiveDiagnostics(document, text, diagnostics);
     collectImportDiagnostics(document, text, diagnostics);
@@ -236,42 +216,6 @@ export function collectContractDiagnostics(
     collectComponentDiagnostics(document, text, graph, diagnostics);
 
     return diagnostics;
-}
-
-function collectComponentScriptDiagnostics(
-    document: ZenithTextDocumentLike,
-    text: string,
-    filePath: string,
-    settings: ZenithServerSettings,
-    diagnostics: ZenithDiagnostic[],
-    hasComponentScriptCompilerDiagnostic: boolean
-): void {
-    if (settings.componentScripts !== 'forbid') {
-        return;
-    }
-
-    if (classifyZenithFile(filePath) !== 'component') {
-        return;
-    }
-
-    if (hasComponentScriptCompilerDiagnostic) {
-        return;
-    }
-
-    const scriptTagMatch = /<script\b[^>]*>/i.exec(text);
-    if (!scriptTagMatch || scriptTagMatch.index == null) {
-        return;
-    }
-
-    diagnostics.push({
-        severity: DiagnosticSeverity.Error,
-        range: {
-            start: document.positionAt(scriptTagMatch.index),
-            end: document.positionAt(scriptTagMatch.index + scriptTagMatch[0].length)
-        },
-        message: COMPONENT_SCRIPT_CONTRACT_MESSAGE,
-        source: 'zenith-contract'
-    });
 }
 
 function collectEventBindingDiagnostics(
@@ -507,12 +451,23 @@ function collectImportDiagnostics(
                 const importOffset = scriptStart + (importMatch.index || 0);
                 const startPos = document.positionAt(importOffset);
                 const endPos = document.positionAt(importOffset + importMatch[0].length);
+                const isRuntimeImport = imp.module === 'zenith:runtime';
+                const moduleOffsetInImport = importMatch[0].indexOf(imp.module);
+                const runtimeRange = isRuntimeImport && moduleOffsetInImport >= 0
+                    ? {
+                        start: document.positionAt(importOffset + moduleOffsetInImport),
+                        end: document.positionAt(importOffset + moduleOffsetInImport + imp.module.length)
+                    }
+                    : { start: startPos, end: endPos };
 
                 diagnostics.push({
                     severity: DiagnosticSeverity.Information,
-                    range: { start: startPos, end: endPos },
-                    message: `Unknown plugin module: '${imp.module}'. Make sure the plugin is installed.`,
-                    source: 'zenith'
+                    range: runtimeRange,
+                    message: isRuntimeImport
+                        ? 'Unknown Zenith import "zenith:runtime"; use "zenith" or omit the import if compiler-injected primitives are available.'
+                        : `Unknown plugin module: '${imp.module}'. Make sure the plugin is installed.`,
+                    source: 'zenith',
+                    ...(isRuntimeImport ? { code: ZENITH_RUNTIME_IMPORT_DIAGNOSTIC_CODE } : {})
                 });
             }
         }
@@ -597,7 +552,45 @@ function collectExpressionDiagnostics(
 }
 
 export const CONTRACT_MESSAGES = {
-    componentScript: COMPONENT_SCRIPT_CONTRACT_MESSAGE,
+    compilerUnavailable: COMPILER_UNAVAILABLE_MESSAGE,
     cssBareImport: CSS_BARE_IMPORT_MESSAGE,
     cssEscape: CSS_ESCAPE_MESSAGE
 } as const;
+
+export function buildCompilerFailureDiagnostic(error: any): ZenithDiagnostic {
+    const message = String(error?.message || 'Unknown compiler error');
+    if (isCompilerUnavailableError(error, message)) {
+        return {
+            severity: DiagnosticSeverity.Warning,
+            range: {
+                start: { line: 0, character: 0 },
+                end: { line: 0, character: 1 }
+            },
+            message: COMPILER_UNAVAILABLE_MESSAGE,
+            source: 'zenith-compiler',
+            code: 'ZENITH-COMPILER-UNAVAILABLE'
+        };
+    }
+
+    return {
+        severity: DiagnosticSeverity.Error,
+        range: {
+            start: { line: (error?.line || 1) - 1, character: (error?.column || 1) - 1 },
+            end: { line: (error?.line || 1) - 1, character: (error?.column || 1) + 20 }
+        },
+        message: `[${error?.code || 'compiler'}] ${message}${error?.hints ? '\n\nHints:\n' + error.hints.join('\n') : ''}`,
+        source: 'zenith-compiler'
+    };
+}
+
+function isCompilerUnavailableError(error: any, message: string): boolean {
+    const normalized = message.toLowerCase();
+    const code = String(error?.code || '');
+
+    return (
+        (code === 'ERR_MODULE_NOT_FOUND' && normalized.includes('@zenithbuild/compiler')) ||
+        normalized.includes('cannot find package \'@zenithbuild/compiler\'') ||
+        normalized.includes('cannot find module \'@zenithbuild/compiler\'') ||
+        normalized.includes('compiler binary not installed')
+    );
+}

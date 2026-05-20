@@ -1,4 +1,4 @@
-import {
+import type {
     ZenithDiagnostic,
     ZenithRange
 } from './diagnostics';
@@ -8,6 +8,7 @@ export const EVENT_BINDING_DIAGNOSTIC_CODE = 'zenith.event.binding.syntax';
 export const ZEN_DOM_QUERY = 'ZEN-DOM-QUERY';
 export const ZEN_DOM_LISTENER = 'ZEN-DOM-LISTENER';
 export const ZEN_DOM_WRAPPER = 'ZEN-DOM-WRAPPER';
+export const ZENITH_RUNTIME_IMPORT_DIAGNOSTIC_CODE = 'ZENITH-IMPORT-RUNTIME';
 
 export interface EventBindingCodeActionData {
     replacement: string;
@@ -56,6 +57,36 @@ export function buildEventBindingCodeActions(
                     [document.uri]: [{
                         range: diagnostic.range,
                         newText: data.replacement
+                    }]
+                }
+            },
+            isPreferred: true
+        });
+    }
+
+    return actions;
+}
+
+export function buildRuntimeImportCodeActions(
+    document: ZenithTextDocumentLike,
+    diagnostics: ZenithDiagnostic[]
+): ZenithCodeAction[] {
+    const actions: ZenithCodeAction[] = [];
+
+    for (const diagnostic of diagnostics) {
+        if (diagnostic.code !== ZENITH_RUNTIME_IMPORT_DIAGNOSTIC_CODE) {
+            continue;
+        }
+
+        actions.push({
+            title: 'Replace "zenith:runtime" with "zenith"',
+            kind: 'quickfix',
+            diagnostics: [diagnostic],
+            edit: {
+                changes: {
+                    [document.uri]: [{
+                        range: diagnostic.range,
+                        newText: 'zenith'
                     }]
                 }
             },
